@@ -27,14 +27,19 @@ const LIGHTING_PRESET = "qtBright"; // "qtBright" | "current"
 const WALL_EDGE_BREAKS = 1000;
 /** Базовий fill для lit-матеріалів: 255 у поєднанні з яскравим світлом дає майже білий «вигорання». */
 const LIT_ALBEDO = 200;
-/** Трохи темніше за стіни: робот. */
-const ACTOR_ALBEDO = Math.round(LIT_ALBEDO * 0.88);
-/** Біпери темніші за робота (fill × матеріал). */
+/** Біпери темніші за базовий lit (fill × матеріал). */
 const BEEPER_ALBEDO = Math.round(LIT_ALBEDO * 0.72);
 const BEEPER_MATERIAL_DIM = 0.78;
 const KAREL_MATERIAL_DIM = 0.88;
-/** Стіни (цегла): підсилення яскравості кольору цеглини. */
-const BRICK_BRIGHTNESS = 1.52;
+/** Стіни (цегла): підсилення яскравості кольору цеглини (нижче — темніші стіни). */
+const BRICK_BRIGHTNESS = 1.18;
+/** Дифузна цегла: той самий dim, що `km()` для Карела (`KAREL_MATERIAL_DIM`), × `BRICK_BRIGHTNESS`. */
+const BRICK_RGB_FACTOR = BRICK_BRIGHTNESS * KAREL_MATERIAL_DIM;
+/** Внутрішні point-джерела: теплий терракотовий тінь (не сірий RGB≈RGB — інакше стіни «вигорають» у біле). */
+const INTERIOR_LIGHT_CORNER_RGB = [102, 61, 38];
+const INTERIOR_LIGHT_CENTER_RGB = [84, 54, 38];
+const INTERIOR_LIGHT_CORNER_RGB_DIM = [36, 24, 20];
+const INTERIOR_LIGHT_CENTER_RGB_DIM = [27, 20, 17];
 
 const renderAnim = {
   initialized: false,
@@ -321,8 +326,8 @@ function scaleRgbClamped(r, g, b, factor) {
   ];
 }
 
-/** Lit perimeter bricks read darker than unlit fill(); nudge toward internal vividness. */
-function boostLitBrickRgb(r, g, b, factor = BRICK_BRIGHTNESS) {
+/** Lit perimeter bricks: factor за замовчуванням узгоджений з підсвічуванням Карела (`km`) + BRICK_BRIGHTNESS. */
+function boostLitBrickRgb(r, g, b, factor = BRICK_RGB_FACTOR) {
   return [
     Math.min(255, Math.round(r * factor)),
     Math.min(255, Math.round(g * factor)),
@@ -330,17 +335,51 @@ function boostLitBrickRgb(r, g, b, factor = BRICK_BRIGHTNESS) {
   ];
 }
 
+/**
+ * Замість лише ambientMaterial: дифузна база + блік (Phong у p5 WEBGL).
+ * Цегла використовує той самий профіль, що й корпус Карела (karelBody).
+ * @param {'beeper'|'karelBody'|'karelEye'} kind
+ */
+function setSceneLitMaterial(p, r, g, b, kind) {
+  p.ambientMaterial(r, g, b);
+  if (kind === "beeper") {
+    p.specularMaterial(
+      Math.min(255, Math.round(r * 0.48 + 85)),
+      Math.min(255, Math.round(g * 0.46 + 78)),
+      Math.min(255, Math.round(b * 0.44 + 72))
+    );
+    p.shininess(48);
+  } else if (kind === "karelBody") {
+    p.specularMaterial(
+      Math.min(255, Math.round(r * 0.38 + 35)),
+      Math.min(255, Math.round(g * 0.38 + 35)),
+      Math.min(255, Math.round(b * 0.4 + 38))
+    );
+    p.shininess(26);
+  } else if (kind === "karelEye") {
+    p.specularMaterial(
+      Math.min(255, Math.round(r * 0.55 + 70)),
+      Math.min(255, Math.round(g * 0.42 + 45)),
+      Math.min(255, Math.round(b * 0.42 + 48))
+    );
+    p.shininess(64);
+  } else {
+    p.specularMaterial(0, 0, 0);
+    p.shininess(1);
+  }
+}
+
 function ambientBrickNorthSouth(p, ix, row, wallPalette, salt = 0) {
   const [r0, g0, b0] = brickColorNorthSouth(ix, row, wallPalette, salt);
   const [r, g, b] = boostLitBrickRgb(r0, g0, b0);
-  p.ambientMaterial(r, g, b);
+  setSceneLitMaterial(p, r, g, b, "karelBody");
   brickStrokeFromFaceColor(p, r, g, b);
 }
 
 function ambientBrickWestEast(p, iz, row, wallPalette, salt = 0) {
   const [r0, g0, b0] = brickColorWestEast(iz, row, wallPalette, salt);
   const [r, g, b] = boostLitBrickRgb(r0, g0, b0);
-  p.ambientMaterial(r, g, b);
+  setSceneLitMaterial(p, r, g, b, "karelBody");
   brickStrokeFromFaceColor(p, r, g, b);
 }
 
@@ -418,32 +457,64 @@ function drawBrickStripAlongZ(
   }
 }
 
-function applySceneLights(p, worldSpan) {
+/**
+ * @param {object} [opts]
+ * @param {{ w: number, d: number }} [opts.interiorGrid] — розмір поля в world units; додає point-джерела зсередини до периметру стін.
+ */
+function applySceneLights(p, worldSpan, opts = {}) {
   if (LIGHTING_PRESET === "qtBright") {
-    /* Тепліше заповнення + сильніші ключі — стіни не «сірують» від холодного низького ambient. */
-    p.ambientLight(68, 64, 70);
-    p.directionalLight(198, 188, 175, -0.14, -1, -0.1);
-    p.directionalLight(138, 145, 168, 0.6, -0.25, 0.34);
-    p.pointLight(168, 162, 178, 0, -worldSpan * 0.82, worldSpan * 0.16);
-    p.pointLight(98, 94, 102, 0, -worldSpan * 0.28, worldSpan * 1.05); // front light
+    /* Тепліше заповнення + ключі; зовнішнє освітлення трохи нижче за внутрішнє fill. */
+    p.ambientLight(45, 42, 47);
+    p.directionalLight(130, 124, 115, -0.14, -1, -0.1);
+    p.directionalLight(91, 96, 111, 0.6, -0.25, 0.34);
+    p.pointLight(111, 108, 118, 0, -worldSpan * 0.82, worldSpan * 0.16);
+    p.pointLight(64, 63, 67, 0, -worldSpan * 0.28, worldSpan * 1.05); // front light
+    if (opts.interiorGrid) {
+      const { w, d } = opts.interiorGrid;
+      const yFill = -worldSpan * 0.09;
+      const ix = w * 0.38;
+      const iz = d * 0.38;
+      const [cr, cg, cb] = INTERIOR_LIGHT_CORNER_RGB;
+      const [er, eg, eb] = INTERIOR_LIGHT_CENTER_RGB;
+      p.pointLight(cr, cg, cb, ix, yFill, iz);
+      p.pointLight(cr, cg, cb, -ix, yFill, iz);
+      p.pointLight(cr, cg, cb, ix, yFill, -iz);
+      p.pointLight(cr, cg, cb, -ix, yFill, -iz);
+      p.pointLight(er, eg, eb, 0, yFill * 1.15, 0);
+    }
   } else {
-    p.ambientLight(28, 28, 28);
-    p.directionalLight(228, 228, 228, -0.15, -1, -0.08);
-    p.directionalLight(82, 82, 82, 0.55, -0.28, 0.36);
-    p.pointLight(132, 132, 132, 0, -worldSpan * 0.95, worldSpan * 0.12);
-    p.pointLight(86, 86, 86, 0, -worldSpan * 0.3, worldSpan * 1.05); // front light
+    p.ambientLight(20, 20, 20);
+    p.directionalLight(152, 152, 152, -0.15, -1, -0.08);
+    p.directionalLight(54, 54, 54, 0.55, -0.28, 0.36);
+    p.pointLight(87, 87, 87, 0, -worldSpan * 0.95, worldSpan * 0.12);
+    p.pointLight(57, 57, 57, 0, -worldSpan * 0.3, worldSpan * 1.05); // front light
+    if (opts.interiorGrid) {
+      const { w, d } = opts.interiorGrid;
+      const yFill = -worldSpan * 0.09;
+      const ix = w * 0.38;
+      const iz = d * 0.38;
+      const [cr, cg, cb] = INTERIOR_LIGHT_CORNER_RGB_DIM;
+      const [er, eg, eb] = INTERIOR_LIGHT_CENTER_RGB_DIM;
+      p.pointLight(cr, cg, cb, ix, yFill, iz);
+      p.pointLight(cr, cg, cb, -ix, yFill, iz);
+      p.pointLight(cr, cg, cb, ix, yFill, -iz);
+      p.pointLight(cr, cg, cb, -ix, yFill, -iz);
+      p.pointLight(er, eg, eb, 0, yFill * 1.15, 0);
+    }
   }
 }
 
 /**
  * Після noLights() / плоских ellipse у WEBGL лишається неосвітлений шейдер — сфери виглядають білими.
- * Відновлюємо світло, дефолтний lit-шейдер і нейтральний fill для ambientMaterial.
+ * Відновлюємо світло, дефолтний lit-шейдер і нейтральний fill для наступного lit-об’єкта.
  */
-function restoreDefaultLitShader(p, worldSpan) {
-  applySceneLights(p, worldSpan);
+function restoreDefaultLitShader(p, worldSpan, lightOpts = {}) {
+  applySceneLights(p, worldSpan, lightOpts);
   if (typeof p.resetShader === "function") {
     p.resetShader();
   }
+  p.specularMaterial(0, 0, 0);
+  p.shininess(1);
   p.fill(LIT_ALBEDO, LIT_ALBEDO, Math.min(255, LIT_ALBEDO + 5));
 }
 
@@ -627,7 +698,7 @@ export class KarelEngine {
 /**
  * Число над стосом біперів (WEBGL: потрібен loadFont + без depth test, інакше не видно).
  */
-function drawBeeperCountLabel(p, cx, cz, floorY, cell, count, worldSpan, labelFont) {
+function drawBeeperCountLabel(p, cx, cz, floorY, cell, count, worldSpan, labelFont, lightOpts) {
   const gl = p._renderer?.GL;
   p.push();
   p.translate(cx, floorY - cell * 0.48, cz);
@@ -647,7 +718,7 @@ function drawBeeperCountLabel(p, cx, cz, floorY, cell, count, worldSpan, labelFo
   p.text(String(count), 0, 0);
   if (gl) gl.enable(gl.DEPTH_TEST);
   p.pop();
-  restoreDefaultLitShader(p, worldSpan);
+  restoreDefaultLitShader(p, worldSpan, lightOpts);
 }
 
 export function drawWorld(p, engine, width = 480, height = 480, labelFont = null) {
@@ -667,6 +738,7 @@ export function drawWorld(p, engine, width = 480, height = 480, labelFont = null
   const gridD = rows * cell;
   const originX = -gridW / 2;
   const originZ = -gridD / 2;
+  const sceneLightOpts = { interiorGrid: { w: gridW, d: gridD } };
 
   if (LIGHTING_PRESET === "qtBright") {
     p.background(22, 26, 34);
@@ -674,7 +746,7 @@ export function drawWorld(p, engine, width = 480, height = 480, labelFont = null
     p.background(24, 24, 26);
   }
   /* Після fog у drawKarel (noLights + blend) наступний кадр інакше може малювати все білим. */
-  restoreDefaultLitShader(p, worldSpan);
+  restoreDefaultLitShader(p, worldSpan, sceneLightOpts);
 
   // Camera similar to qt 3D: from south/front, looking north into scene.
   p.camera(0, -worldSpan * 0.32, worldSpan * 1.78 * cameraZoom, 0, 0, 0, 0, 1, 0);
@@ -693,8 +765,8 @@ export function drawWorld(p, engine, width = 480, height = 480, labelFont = null
       p.push();
       p.translate(px, floorY + cell * 0.025, pz);
       p.noStroke();
-      if (checker) p.fill(6, 14, 28);
-      else p.fill(2, 4, 14);
+      if (checker) p.fill(18, 30, 48);
+      else p.fill(12, 22, 38);
       p.box(cell * 0.98, cell * 0.05, cell * 0.98);
       const cellKey = `${x},${y}`;
       const paintColor = state.cornerColors[cellKey];
@@ -717,10 +789,10 @@ export function drawWorld(p, engine, width = 480, height = 480, labelFont = null
       p.pop();
     }
   }
-  applySceneLights(p, worldSpan);
+  applySceneLights(p, worldSpan, sceneLightOpts);
 
   // Grid lines.
-  p.stroke(118, 118, 118);
+  p.stroke(132, 132, 136);
   p.strokeWeight(1);
   for (let x = 0; x <= cols; x += 1) {
     const gx = originX + x * cell;
@@ -736,8 +808,8 @@ export function drawWorld(p, engine, width = 480, height = 480, labelFont = null
   // Sawtooth border with random-looking tooth size/depth.
   p.noStroke();
   {
-    const [pr, pg, pb] = boostLitBrickRgb(236, 124, 176, BRICK_BRIGHTNESS);
-    p.ambientMaterial(pr, pg, pb);
+    const [pr, pg, pb] = boostLitBrickRgb(236, 124, 176);
+    setSceneLitMaterial(p, pr, pg, pb, "karelBody");
   }
 
   // Base border as brick masonry.
@@ -829,8 +901,8 @@ export function drawWorld(p, engine, width = 480, height = 480, labelFont = null
   const eastRange = minRange + edgeNoise(0, 34) * (maxRange - minRange);
 
   {
-    const [cr, cg, cb] = boostLitBrickRgb(236, 124, 176, BRICK_BRIGHTNESS * 1.1);
-    p.ambientMaterial(cr, cg, cb);
+    const [cr, cg, cb] = boostLitBrickRgb(236, 124, 176, BRICK_RGB_FACTOR * 1.04);
+    setSceneLitMaterial(p, cr, cg, cb, "karelBody");
   }
 
   // North wall crest.
@@ -942,7 +1014,7 @@ export function drawWorld(p, engine, width = 480, height = 480, labelFont = null
   p.fill(0, 0, 0, 88);
   p.ellipse(0, 0, cell * 0.72, cell * 0.56);
   p.pop();
-  restoreDefaultLitShader(p, worldSpan);
+  restoreDefaultLitShader(p, worldSpan, sceneLightOpts);
 
   for (const [key, count] of state.beepers) {
     if (count < 1) continue;
@@ -955,20 +1027,20 @@ export function drawWorld(p, engine, width = 480, height = 480, labelFont = null
     p.fill(BEEPER_ALBEDO, BEEPER_ALBEDO, Math.min(255, BEEPER_ALBEDO + 5));
     const [b1r, b1g, b1b] = scaleRgbClamped(205, 100, 28, BEEPER_MATERIAL_DIM);
     const [b2r, b2g, b2b] = scaleRgbClamped(178, 82, 22, BEEPER_MATERIAL_DIM);
-    p.ambientMaterial(b1r, b1g, b1b);
+    setSceneLitMaterial(p, b1r, b1g, b1b, "beeper");
     p.sphere(cell * 0.16, 14, 10);
     p.push();
     p.translate(0, cell * 0.03, 0);
-    p.ambientMaterial(b2r, b2g, b2b);
+    setSceneLitMaterial(p, b2r, b2g, b2b, "beeper");
     p.torus(cell * 0.11, cell * 0.018, 10, 8);
     p.pop();
     p.pop();
 
     if (count > 1) {
-      drawBeeperCountLabel(p, cx, cz, floorY, cell, count, worldSpan, labelFont);
+      drawBeeperCountLabel(p, cx, cz, floorY, cell, count, worldSpan, labelFont, sceneLightOpts);
     }
   }
-  restoreDefaultLitShader(p, worldSpan);
+  restoreDefaultLitShader(p, worldSpan, sceneLightOpts);
 
   drawKarel(p, kx, floorY - cell * 0.2 + bob, kz, pose.yaw, cell * 0.35);
 
@@ -983,56 +1055,55 @@ function drawKarel(p, x, y, z, yaw, radius) {
   p.translate(x, y, z);
   p.rotateY(yaw);
   p.noStroke();
-  p.fill(ACTOR_ALBEDO, ACTOR_ALBEDO, Math.min(255, ACTOR_ALBEDO + 5));
+  p.fill(10, 10, 12);
 
-  // Upper cap.
+  // Upper cap — чорний корпус з легким градієнтом для об’єму під світлом.
   p.push();
   p.translate(0, -radius * 1.52, 0);
   p.scale(0.9, 0.42, 0.9);
-  // Darker lit materials: keep volume, avoid gray look.
-  p.ambientMaterial(...km(2, 2, 2));
+  setSceneLitMaterial(p, ...km(6, 6, 7), "karelBody");
   p.sphere(radius * 0.82, 16, 10);
   p.push();
   p.translate(0, -radius * 0.03, radius * 0.05);
-  p.ambientMaterial(...km(10, 10, 12));
+  setSceneLitMaterial(p, ...km(10, 10, 12), "karelBody");
   p.sphere(radius * 0.58, 14, 10);
   p.pop();
   p.push();
   p.translate(-radius * 0.09, -radius * 0.11, radius * 0.09);
-  p.ambientMaterial(...km(24, 30, 44));
+  setSceneLitMaterial(p, ...km(14, 16, 20), "karelBody");
   p.sphere(radius * 0.14, 8, 6);
   p.pop();
   p.pop();
 
-  // Two front-top eyes with subtle volume.
+  // Очі — червоні, karelEye лишає блік на «рогівці».
   p.push();
   p.translate(-radius * 0.24, -radius * 1.42, radius * 0.8);
-  p.ambientMaterial(...km(138, 12, 56));
+  setSceneLitMaterial(p, ...km(200, 32, 44), "karelEye");
   p.sphere(radius * 0.18, 12, 10);
   p.push();
   p.translate(0, 0, radius * 0.042);
-  p.ambientMaterial(...km(90, 8, 38));
+  setSceneLitMaterial(p, ...km(110, 14, 26), "karelEye");
   p.sphere(radius * 0.068, 8, 6);
   p.pop();
   p.push();
   p.translate(-radius * 0.018, -radius * 0.018, radius * 0.074);
-  p.ambientMaterial(...km(196, 78, 124));
+  setSceneLitMaterial(p, ...km(255, 160, 168), "karelEye");
   p.sphere(radius * 0.026, 7, 5);
   p.pop();
   p.pop();
 
   p.push();
   p.translate(radius * 0.24, -radius * 1.42, radius * 0.8);
-  p.ambientMaterial(...km(138, 12, 56));
+  setSceneLitMaterial(p, ...km(200, 32, 44), "karelEye");
   p.sphere(radius * 0.18, 12, 10);
   p.push();
   p.translate(0, 0, radius * 0.042);
-  p.ambientMaterial(...km(90, 8, 38));
+  setSceneLitMaterial(p, ...km(110, 14, 26), "karelEye");
   p.sphere(radius * 0.068, 8, 6);
   p.pop();
   p.push();
   p.translate(-radius * 0.018, -radius * 0.018, radius * 0.074);
-  p.ambientMaterial(...km(196, 78, 124));
+  setSceneLitMaterial(p, ...km(255, 160, 168), "karelEye");
   p.sphere(radius * 0.026, 7, 5);
   p.pop();
   p.pop();
@@ -1052,6 +1123,7 @@ function drawKarel(p, x, y, z, yaw, radius) {
   const pulse = (Math.sin(t * 2.2) + 1) * 0.5;
   const baseAlpha = 70 + pulse * 55;
   const baseHue = (p.millis() * 0.045) % 360;
+  /* Окремо від кольору корпусу Карела — насичена веселка під ногами. */
   const [dr, dg, db] = hslToRgb(baseHue, 0.85, 0.62);
 
   // Ground fog disk.
