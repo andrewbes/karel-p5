@@ -1,0 +1,9 @@
+{
+  "width": 8,
+  "height": 8,
+  "startX": 0,
+  "startY": 0,
+  "startDir": "E",
+  "beepers": [],
+  "walls": []
+}

@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="uk">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Karel p5.js Playground</title>
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css"
+    />
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="controls">
+        <button id="runBtn">Run</button>
+        <button id="stepBtn">Step</button>
+        <button id="resetBtn">Reset</button>
+        <button id="rulesBtn" type="button" title="Довідка з команд">Rules</button>
+        <button id="zoomInBtn" title="Zoom in">+</button>
+        <button id="zoomOutBtn" title="Zoom out">-</button>
+        <span id="zoomValue">100%</span>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="panel editor-panel">
+        <h2>Code</h2>
+        <textarea id="codeInput"></textarea>
+      </section>
+
+      <section class="panel world-panel">
+        <h2>World</h2>
+        <div class="world-toolbar">
+          <label class="world-map-label">
+            Карта
+            <select id="worldSelect" aria-label="Обрати карту з папки worlds"></select>
+          </label>
+          <button type="button" id="loadWorldFileBtn" title="Завантажити світ з JSON-файлу">
+            З файлу…
+          </button>
+          <input type="file" id="worldFileInput" accept=".json,application/json" hidden />
+        </div>
+        <div id="canvasContainer"></div>
+        <p id="statusLine">Ready.</p>
+      </section>
+    </main>
+
+    <dialog id="rulesDialog" class="rules-dialog" aria-labelledby="rulesDialogTitle">
+      <div class="rules-dialog-inner">
+        <header class="rules-dialog-header">
+          <h2 id="rulesDialogTitle">Команди Karel</h2>
+          <button type="button" id="rulesCloseBtn" class="rules-close" aria-label="Закрити">
+            ×
+          </button>
+        </header>
+        <div class="rules-body">
+          <p class="rules-intro">
+            Програма — послідовність рядків (як у JavaScript). Рядок може закінчуватися на
+            <code>;</code> або ні. Коментарі: рядок, що починається з <code>//</code>.
+          </p>
+
+          <section class="rules-section">
+            <h3>Рух і поворот</h3>
+            <dl>
+              <dt><code>move()</code></dt>
+              <dd>Крок на одну клітинку вперед у напрямку погляду. Якщо попереду стіна — помилка.</dd>
+              <dt><code>turnLeft()</code></dt>
+              <dd>Повернутися ліворуч на 90°.</dd>
+            </dl>
+          </section>
+
+          <section class="rules-section">
+            <h3>Біпери</h3>
+            <dl>
+              <dt><code>putBeeper()</code></dt>
+              <dd>Покласти біпер на поточну клітинку.</dd>
+              <dt><code>pickBeeper()</code></dt>
+              <dd>Підняти біпер з клітинки. Якщо біпера немає — помилка.</dd>
+              <dt><code>beepersPresent()</code></dt>
+              <dd>Повертає <code>true</code>, якщо на клітинці є хоча б один біпер.</dd>
+            </dl>
+          </section>
+
+          <section class="rules-section">
+            <h3>Перевірки стін</h3>
+            <dl>
+              <dt><code>frontIsClear()</code></dt>
+              <dd><code>true</code>, якщо попереду немає стіни (можна зробити <code>move()</code>).</dd>
+              <dt><code>leftIsClear()</code></dt>
+              <dd><code>true</code>, якщо зліва немає стіни.</dd>
+              <dt><code>rightIsClear()</code></dt>
+              <dd><code>true</code>, якщо справа немає стіни.</dd>
+            </dl>
+          </section>
+
+          <section class="rules-section">
+            <h3>Фарба</h3>
+            <dl>
+              <dt><code>paintCorner("Колір")</code></dt>
+              <dd>
+                Зафарбувати поточну клітинку. Колір у лапках, латиницею, наприклад:
+                <code>"Red"</code>, <code>"Yellow"</code>, <code>"Cyan"</code> (як у демо).
+              </dd>
+            </dl>
+          </section>
+
+          <section class="rules-section">
+            <h3>Умова</h3>
+            <pre class="rules-code"><code>if (frontIsClear()) {
+  move();
+}</code></pre>
+            <p>
+              У дужках — один із предикатів: <code>frontIsClear()</code>, <code>leftIsClear()</code>,
+              <code>rightIsClear()</code>, <code>beepersPresent()</code>. Тіло лише в фігурних дужках
+              <code>{ }</code>. Вкладені <code>if</code> дозволені.
+            </p>
+          </section>
+
+          <section class="rules-section">
+            <h3>Цикл for</h3>
+            <pre class="rules-code"><code>for (let i = 0; i &lt; 4; i++) {
+  move();
+}</code></pre>
+            <p>
+              Повторює тіло <code>{ }</code> стільки разів, скільки вказано в умові
+              <code>i &lt; N</code> (N — ціле число від 0). Заголовок у стилі JavaScript:
+              <code>let</code>, старт <code>0</code>, порівняння <code>&lt;</code>, далі будь-який
+              коректний вираз інкременту (наприклад <code>i++</code>). Вкладені цикли та комбінація з
+              <code>if</code> дозволені.
+            </p>
+          </section>
+
+          <section class="rules-section">
+            <h3>Власні функції</h3>
+            <pre class="rules-code"><code>function turnRight() {
+  turnLeft();
+  turnLeft();
+  turnLeft();
+}
+
+turnRight();
+move();</code></pre>
+            <dl>
+              <dt>Структура програми</dt>
+              <dd>
+                Спочатку можна оголосити нуль або більше глобальних функцій
+                <code>function імʼя() { … }</code>, далі — основний код (команди, <code>if</code>,
+                <code>for</code>, <code>while</code>). Глобальні функції можуть викликати одна одну.
+              </dd>
+              <dt>Виклик</dt>
+              <dd>
+                <code>імʼя();</code> — виклик користувацької функції (не плутати з вбудованими командами
+                на кшталт <code>move()</code>).
+              </dd>
+              <dt>Локальні (вкладені) функції</dt>
+              <dd>
+                Усередині тіла будь-якої функції (і лише там) можна оголошувати
+                <code>function … () { … }</code>. Таке імʼя видно лише в цьому блоці та
+                <strong>лише після рядка оголошення</strong> — викликати «раніше» оголошення в тому ж блоці
+                не можна. Тіла <code>if</code>, <code>for</code> і <code>while</code> не додають імен
+                назовні: локальна функція всередині циклу не видна після циклу.
+              </dd>
+              <dt>Рекурсія</dt>
+              <dd>
+                Дозволена: глобальна функція може викликати сама себе, локальна — себе ж у межах того ж
+                блоку. Потрібна умова зупинки, інакше виконання не скінчиться.
+              </dd>
+              <dt>Обмеження імен</dt>
+              <dd>
+                У одному блоці не можна двічі оголосити функцію з тим самим імʼям (у тому числі якщо таке
+                імʼя вже є у глобальних функціях — повтор у внутрішньому блоці теж заборонений). Імʼя
+                функції не може збігатися з вбудованою командою (<code>move</code>, <code>turnLeft</code>,
+                предикати тощо) або бути зарезервованим словом: <code>if</code>, <code>while</code>,
+                <code>for</code>, <code>function</code>, <code>let</code>, <code>const</code>,
+                <code>var</code>, <code>paintCorner</code>.
+              </dd>
+            </dl>
+            <pre class="rules-code"><code>function walkLine() {
+  if (frontIsClear()) {
+    move();
+    walkLine();
+  }
+}</code></pre>
+          </section>
+
+          <section class="rules-section">
+            <h3>Цикл while</h3>
+            <pre class="rules-code"><code>while (frontIsClear()) {
+  move();
+}</code></pre>
+            <p>
+              Поки предикат у дужках дає <code>true</code>, виконується тіло <code>{ }</code>. Ті самі
+              умови, що й у <code>if</code>. Після кожного проходу тіла умова перевіряється знову. Якщо
+              умова завжди істинна, цикл не зупиниться (перезавантажте сторінку або натисніть Reset).
+            </p>
+          </section>
+
+          <section class="rules-section">
+            <h3>Запуск</h3>
+            <dl>
+              <dt><strong>Run</strong></dt>
+              <dd>Виконати всю програму з анімацією кроків.</dd>
+              <dt><strong>Step</strong></dt>
+              <dd>
+                Один елемент черги: одна команда, один <code>if</code> (з можливим розгортанням тіла),
+                один <code>for</code> (усі повтори тіла стають наступними кроками), одна перевірка
+                <code>while</code>, один виклик <code>імʼя()</code> (у чергу додається тіло цієї
+                функції та межі області видимості), один рядок оголошення локальної
+                <code>function … () { … }</code>. Далі натискайте Step, щоб виконувати вже підставлені
+                команди по одній.
+              </dd>
+              <dt><strong>Reset</strong></dt>
+              <dd>Скинути світ і чергу виконання.</dd>
+            </dl>
+          </section>
+        </div>
+      </div>
+    </dialog>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/javascript/javascript.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.4/p5.min.js"></script>
+    <script type="module" src="./src/main.js"></script>
+  </body>
+</html>
