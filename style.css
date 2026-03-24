@@ -301,11 +301,11 @@ button:hover {
     max-height: none;
   }
 
+  /* Висота поля = 70% від ширини (10:7 по ширині до висоти) */
   #canvasContainer {
     width: 100%;
     height: auto;
-    max-height: min(55vh, 100vw);
-    aspect-ratio: 1 / 1;
+    aspect-ratio: 10 / 7;
     flex: 0 0 auto;
   }
 
