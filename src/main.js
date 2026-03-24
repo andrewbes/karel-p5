@@ -30,6 +30,8 @@ const canvasContainer = document.getElementById("canvasContainer");
 const worldSelect = document.getElementById("worldSelect");
 const loadWorldFileBtn = document.getElementById("loadWorldFileBtn");
 const worldFileInput = document.getElementById("worldFileInput");
+const worldCollapseBtn = document.getElementById("worldCollapseBtn");
+const worldPanel = document.querySelector(".world-panel");
 
 /** @type {KarelEngine} */
 let engine;
@@ -215,7 +217,14 @@ paintCorner("White");
 
 let renderWidth = 480;
 let renderHeight = 480;
-let userZoomFactor = 1;
+const MOBILE_LAYOUT_MQ = "(max-width: 980px)";
+/** Внутрішній масштаб поля на мобільному; у рядку зуму це показується як 100%. */
+const DEFAULT_USER_ZOOM_MOBILE = 1.25;
+const DEFAULT_USER_ZOOM_DESKTOP = 1;
+let userZoomFactor =
+  typeof window !== "undefined" && window.matchMedia(MOBILE_LAYOUT_MQ).matches
+    ? DEFAULT_USER_ZOOM_MOBILE
+    : DEFAULT_USER_ZOOM_DESKTOP;
 const USER_ZOOM_MIN = 0.7;
 const USER_ZOOM_MAX = 1.6;
 const REFERENCE_VIEWPORT_WIDTH = 480;
@@ -287,8 +296,16 @@ function setStatus(text, isError = false) {
   statusLine.classList.toggle("error", isError);
 }
 
+function getZoomDisplayBaseline() {
+  if (typeof window === "undefined") return DEFAULT_USER_ZOOM_DESKTOP;
+  return window.matchMedia(MOBILE_LAYOUT_MQ).matches ? DEFAULT_USER_ZOOM_MOBILE : DEFAULT_USER_ZOOM_DESKTOP;
+}
+
+/** Відсоток відносно дефолту для поточного макету (мобільний дефолт = 100%). */
 function updateZoomValue(zoom) {
-  zoomValue.textContent = `${Math.round(zoom * 100)}%`;
+  const baseline = getZoomDisplayBaseline();
+  const pct = Math.round((zoom / baseline) * 100);
+  zoomValue.textContent = `${pct}%`;
 }
 
 function commandNeedsStepAnimation(cmd) {
@@ -635,6 +652,21 @@ if (loadWorldFileBtn && worldFileInput) {
       }
     } catch (e) {
       setStatus(String(e.message ?? e), true);
+    }
+  });
+}
+
+if (worldCollapseBtn && worldPanel) {
+  worldCollapseBtn.addEventListener("click", () => {
+    worldPanel.classList.toggle("world-panel--collapsed");
+    const collapsed = worldPanel.classList.contains("world-panel--collapsed");
+    worldCollapseBtn.setAttribute("aria-expanded", String(!collapsed));
+    worldCollapseBtn.title = collapsed ? "Показати поле світу" : "Згорнути поле світу";
+    worldCollapseBtn.textContent = collapsed ? "▲" : "▼";
+    if (!collapsed) {
+      requestAnimationFrame(() => {
+        window.dispatchEvent(new Event("resize"));
+      });
     }
   });
 }

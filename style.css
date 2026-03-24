@@ -134,6 +134,24 @@ button:hover {
   border-color: var(--accent);
 }
 
+.world-collapse-btn {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  min-width: 2.5rem;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.95rem;
+  line-height: 1;
+}
+
+.world-panel-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
 #canvasContainer {
   width: 100%;
   height: 100%;
@@ -299,6 +317,28 @@ button:hover {
     flex: 0 0 auto;
     min-height: 0;
     max-height: none;
+  }
+
+  .world-collapse-btn {
+    display: inline-flex;
+  }
+
+  /* Інакше flex:1 + min-height:0 дає висоту 0, коли батько .world-panel без фіксованої висоти */
+  .world-panel-body {
+    flex: 0 0 auto;
+    min-height: auto;
+  }
+
+  .world-panel.world-panel--collapsed .world-panel-body {
+    display: none;
+  }
+
+  .world-panel.world-panel--collapsed {
+    padding-bottom: 0.45rem;
+  }
+
+  .world-panel.world-panel--collapsed .world-toolbar {
+    margin-bottom: 0;
   }
 
   /* Висота поля = 70% від ширини (10:7 по ширині до висоти) */

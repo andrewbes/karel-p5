@@ -39,10 +39,22 @@
           <button type="button" id="loadWorldFileBtn" title="Завантажити світ з JSON-файлу">
             З файлу…
           </button>
+          <button
+            type="button"
+            id="worldCollapseBtn"
+            class="world-collapse-btn"
+            aria-expanded="true"
+            aria-controls="worldPanelBody"
+            title="Згорнути поле світу"
+          >
+            ▼
+          </button>
           <input type="file" id="worldFileInput" accept=".json,application/json" hidden />
         </div>
-        <div id="canvasContainer"></div>
-        <p id="statusLine">Ready.</p>
+        <div id="worldPanelBody" class="world-panel-body">
+          <div id="canvasContainer"></div>
+          <p id="statusLine">Ready.</p>
+        </div>
       </section>
     </main>
 
