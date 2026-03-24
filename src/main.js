@@ -78,6 +78,16 @@ const editor = CodeMirror.fromTextArea(document.getElementById("codeInput"), {
   tabSize: 2,
 });
 
+function refreshEditorSize() {
+  const panel = document.querySelector(".editor-panel");
+  if (!panel) return;
+  const h2 = panel.querySelector("h2");
+  const extra = (h2?.offsetHeight ?? 0) + 20;
+  const h = Math.max(120, Math.floor(panel.clientHeight - extra));
+  editor.setSize(null, h);
+  editor.refresh();
+}
+
 editor.setValue(`// Місія на demo.json: двоє «дверей» (проріз у стіні на рядку 3 між кол. 3–4
 // і проріз між (5,4)–(5,5)), два біпери (4,2) та (6,5), біпер у кут (7,7), повернення на базу (0,0).
 // Після кожного turnLeft() — paintCorner; після кожного turnRight() — теж paintCorner (на клітинці після повороту).
@@ -231,6 +241,19 @@ const sketch = (p) => {
 };
 
 new p5(sketch);
+
+requestAnimationFrame(() => {
+  refreshEditorSize();
+});
+window.addEventListener("resize", () => {
+  refreshEditorSize();
+});
+if (typeof ResizeObserver !== "undefined") {
+  const ep = document.querySelector(".editor-panel");
+  if (ep) {
+    new ResizeObserver(() => refreshEditorSize()).observe(ep);
+  }
+}
 
 function setStatus(text, isError = false) {
   statusLine.textContent = text;
