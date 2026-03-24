@@ -17,6 +17,7 @@ import {
 } from "./interpreter.js";
 
 const statusLine = document.getElementById("statusLine");
+const bagCountLine = document.getElementById("bagCountLine");
 const zoomValue = document.getElementById("zoomValue");
 const runBtn = document.getElementById("runBtn");
 const stepBtn = document.getElementById("stepBtn");
@@ -69,6 +70,7 @@ function applyWorldConfig(config, statusMsg) {
   if (statusMsg !== undefined && statusMsg !== null) {
     setStatus(statusMsg);
   }
+  updateBagCountDisplay();
 }
 
 applyWorldConfig(createDemoWorldConfig(), "Готово.");
@@ -245,7 +247,16 @@ function applyResponsiveZoom() {
   updateZoomValue(userZoomFactor);
 }
 
+/** Шрифт для підпису кількості біперів у WEBGL (p5 text() без loadFont часто не малюється). */
+let beeperLabelFont = null;
+
 const sketch = (p) => {
+  p.preload = () => {
+    beeperLabelFont = p.loadFont(
+      "https://unpkg.com/dejavu-fonts-ttf@2.37.3/ttf/DejaVuSans-Bold.ttf"
+    );
+  };
+
   function resizeToContainer() {
     const dims = getCanvasDimensions();
     renderWidth = dims.width;
@@ -268,7 +279,8 @@ const sketch = (p) => {
   };
 
   p.draw = () => {
-    drawWorld(p, engine, renderWidth, renderHeight);
+    drawWorld(p, engine, renderWidth, renderHeight, beeperLabelFont);
+    updateBagCountDisplay();
   };
 
   p.windowResized = () => {
@@ -294,6 +306,11 @@ if (typeof ResizeObserver !== "undefined") {
 function setStatus(text, isError = false) {
   statusLine.textContent = text;
   statusLine.classList.toggle("error", isError);
+}
+
+function updateBagCountDisplay() {
+  if (!bagCountLine || !engine) return;
+  bagCountLine.textContent = `У корзині: ${engine.getBagCount()}`;
 }
 
 function getZoomDisplayBaseline() {

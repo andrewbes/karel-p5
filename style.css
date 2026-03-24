@@ -181,6 +181,14 @@ button:hover {
   color: var(--danger);
 }
 
+.bag-count-line {
+  width: 100%;
+  margin: 0.35rem 0 0;
+  color: var(--accent);
+  font-size: 0.88rem;
+  font-variant-numeric: tabular-nums;
+}
+
 .rules-dialog {
   margin: auto;
   padding: 0;

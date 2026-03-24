@@ -4,7 +4,7 @@
   "startX": 0,
   "startY": 0,
   "startDir": "E",
-  "bagCount": 3,
+  "bagCount": 8,
   "beepers": ["4,2", "6,5"],
   "walls": [
     "e,3,0",

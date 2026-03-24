@@ -18,7 +18,8 @@ function nonNegInt(value, field) {
 
 /**
  * @param {string} text
- * @returns {object} config for KarelEngine
+ * @returns {object} config for KarelEngine — поле bagCount лише початкова кількість у корзині,
+ *   не сумується з біперами з масиву beepers (ті лежать на клітинках карти).
  */
 export function parseWorldJson(text) {
   let data;
@@ -47,11 +48,23 @@ export function parseWorldJson(text) {
 
   const beepers = Array.isArray(data.beepers) ? data.beepers : [];
   for (const cell of beepers) {
-    if (typeof cell !== "string") throw new Error("beepers: очікується масив рядків \"x,y\".");
-    const m = cell.match(/^(\d+),(\d+)$/);
-    if (!m) throw new Error(`Некоректний біпер "${cell}" (формат \"x,y\").`);
-    const bx = Number(m[1]);
-    const by = Number(m[2]);
+    if (typeof cell !== "string") throw new Error("beepers: очікується масив рядків \"x,y\" або \"x,y:n\".");
+    let m = cell.match(/^(\d+),(\d+):(\d+)$/);
+    let bx;
+    let by;
+    if (m) {
+      bx = Number(m[1]);
+      by = Number(m[2]);
+      const n = Number(m[3]);
+      if (!Number.isInteger(n) || n < 1) {
+        throw new Error(`Некоректна кількість біперів у "${cell}" (n має бути цілим ≥ 1).`);
+      }
+    } else {
+      m = cell.match(/^(\d+),(\d+)$/);
+      if (!m) throw new Error(`Некоректний біпер "${cell}" (формат \"x,y\" або \"x,y:n\").`);
+      bx = Number(m[1]);
+      by = Number(m[2]);
+    }
     if (bx >= width || by >= height) {
       throw new Error(`Біпер "${cell}" виходить за межі поля.`);
     }
@@ -98,6 +111,7 @@ export function parseWorldJson(text) {
     }
   }
 
+  /** Лише біпери в корзині на старті; біпери на полі — у beepers. */
   const bagCount = data.bagCount != null ? nonNegInt(data.bagCount, "bagCount") : 0;
 
   return {
