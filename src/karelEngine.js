@@ -240,6 +240,7 @@ export function createDemoWorldConfig() {
     startY: 0,
     startDir: "E",
     beepers: ["4,2", "6,5"],
+    bagCount: 8,
     walls,
   };
 }
@@ -499,6 +500,21 @@ export class KarelEngine {
     return this.state.beepers.has(this.serializeCell(this.state.x, this.state.y));
   }
 
+  /** Кількість біперів у корзині (після pickBeeper — зростає, після putBeeper — зменшується). */
+  getBagCount() {
+    return this.state.bagCount;
+  }
+
+  /** Чи є хоча б один біпер у корзині. */
+  beepersInBag() {
+    return this.state.bagCount > 0;
+  }
+
+  /** Чи порожня корзина. */
+  bagEmpty() {
+    return this.state.bagCount === 0;
+  }
+
   move() {
     if (this.hasWallAhead()) {
       throw new Error("Karel crashed into a wall.");
@@ -516,6 +532,10 @@ export class KarelEngine {
   }
 
   putBeeper() {
+    if (this.state.bagCount <= 0) {
+      throw new Error("No beeper in bag to put.");
+    }
+    this.state.bagCount -= 1;
     this.state.beepers.add(this.serializeCell(this.state.x, this.state.y));
   }
 
@@ -525,6 +545,7 @@ export class KarelEngine {
       throw new Error("No beeper to pick on this cell.");
     }
     this.state.beepers.delete(key);
+    this.state.bagCount += 1;
   }
 
   paintCorner(colorName) {

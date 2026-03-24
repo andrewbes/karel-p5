@@ -7,6 +7,9 @@ const ALLOWED_COMMANDS = new Set([
   "leftIsClear()",
   "rightIsClear()",
   "beepersPresent()",
+  "beepersInBag()",
+  "bagEmpty()",
+  "bagCount()",
 ]);
 const PAINT_CORNER_RE = /^paintCorner\("([^"]+)"\)$/;
 
@@ -27,7 +30,14 @@ const FUNCTION_HEADER_RE = /^function\s+(\w+)\s*\(\s*\)\s*\{\s*$/;
 const FOR_HEADER_RE =
   /^for\s*\(\s*let\s+\w+\s*=\s*0\s*;\s*\w+\s*<\s*(\d+)\s*;\s*[^)]+\)\s*\{\s*$/;
 
-export const CONDITION_NAMES = ["frontIsClear", "leftIsClear", "rightIsClear", "beepersPresent"];
+export const CONDITION_NAMES = [
+  "frontIsClear",
+  "leftIsClear",
+  "rightIsClear",
+  "beepersPresent",
+  "beepersInBag",
+  "bagEmpty",
+];
 
 export const MAX_FOR_ITERATIONS = 10000;
 
@@ -51,6 +61,9 @@ const BUILTIN_COMMAND_NAMES = new Set([
   "leftIsClear",
   "rightIsClear",
   "beepersPresent",
+  "beepersInBag",
+  "bagEmpty",
+  "bagCount",
 ]);
 
 function normalizeToken(token) {
@@ -62,7 +75,7 @@ function validateCommandToken(token, lineLabel) {
     return;
   }
   throw new Error(
-    `${lineLabel}: Unsupported command "${token}". Allowed: move(), turnLeft(), putBeeper(), pickBeeper(), frontIsClear(), leftIsClear(), rightIsClear(), beepersPresent(), paintCorner("Color")`
+    `${lineLabel}: Unsupported command "${token}". Allowed: move(), turnLeft(), putBeeper(), pickBeeper(), frontIsClear(), leftIsClear(), rightIsClear(), beepersPresent(), beepersInBag(), bagEmpty(), bagCount(), paintCorner("Color")`
   );
 }
 
@@ -330,6 +343,9 @@ export function runCommand(engine, command) {
   else if (command === "leftIsClear()") return engine.leftIsClear();
   else if (command === "rightIsClear()") return engine.rightIsClear();
   else if (command === "beepersPresent()") return engine.beepersPresent();
+  else if (command === "beepersInBag()") return engine.beepersInBag();
+  else if (command === "bagEmpty()") return engine.bagEmpty();
+  else if (command === "bagCount()") return engine.getBagCount();
   else {
     const paintMatch = command.match(PAINT_CORNER_RE);
     if (paintMatch) engine.paintCorner(paintMatch[1]);
@@ -342,4 +358,6 @@ export const CONDITION_EVALUATORS = {
   leftIsClear: (e) => e.leftIsClear(),
   rightIsClear: (e) => e.rightIsClear(),
   beepersPresent: (e) => e.beepersPresent(),
+  beepersInBag: (e) => e.beepersInBag(),
+  bagEmpty: (e) => e.bagEmpty(),
 };

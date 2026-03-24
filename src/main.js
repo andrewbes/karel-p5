@@ -88,9 +88,9 @@ function refreshEditorSize() {
   editor.refresh();
 }
 
-editor.setValue(`// Місія на demo.json: двоє «дверей» (проріз у стіні на рядку 3 між кол. 3–4
-// і проріз між (5,4)–(5,5)), два біпери (4,2) та (6,5), біпер у кут (7,7), повернення на базу (0,0).
-// Після кожного turnLeft() — paintCorner; після кожного turnRight() — теж paintCorner (на клітинці після повороту).
+editor.setValue(`// Місія на demo.json: двоє «дверей», два біпери на полі, біпер у кут (7,7), повернення на базу (0,0).
+// bagCount у карті = 8: після збору/кладки на зворотному шляху на кожному повороті — putBeeper(), якщо ще є біпери в корзині.
+// Після кожного turnLeft/turnRight — paintCorner на тій самій клітинці (як раніше).
 function turnRight() {
   turnLeft();
   turnLeft();
@@ -149,40 +149,67 @@ for (let i = 0; i < 2; i++) {
 }
 putBeeper();
 
-// --- повернення на базу (0,0), схід; while (frontIsClear()) там, де рух іде до стіни без зайвих кроків ---
-// (дві «короткі» ділянки лишаються парою move() — інакше while пройшов би далі).
+// --- повернення на базу (0,0), схід; після кожного повороту — біпер з корзини, якщо ще є ---
+// (while там, де рух іде до стіни; дві короткі ділянки — парою move().)
 turnLeft();
+if (beepersInBag()) {
+  putBeeper();
+}
 paintCorner("Orange");
 turnLeft();
+if (beepersInBag()) {
+  putBeeper();
+}
 paintCorner("Yellow");
 while (frontIsClear()) {
   move();
 }
 turnRight();
+if (beepersInBag()) {
+  putBeeper();
+}
 paintCorner("Blue");
 move();
 move();
 turnLeft();
+if (beepersInBag()) {
+  putBeeper();
+}
 paintCorner("Magenta");
 move();
 move();
 turnRight();
+if (beepersInBag()) {
+  putBeeper();
+}
 paintCorner("Magenta");
 move();
 move();
 turnLeft();
+if (beepersInBag()) {
+  putBeeper();
+}
 paintCorner("Yellow");
 while (frontIsClear()) {
   move();
 }
 turnRight();
+if (beepersInBag()) {
+  putBeeper();
+}
 paintCorner("White");
 while (frontIsClear()) {
   move();
 }
 turnLeft();
+if (beepersInBag()) {
+  putBeeper();
+}
 paintCorner("Magenta");
 turnLeft();
+if (beepersInBag()) {
+  putBeeper();
+}
 paintCorner("White");
 `);
 
@@ -331,7 +358,7 @@ function executeNext() {
     const item = queue.shift();
     if (typeof item === "string") {
       const result = runCommand(engine, item);
-      if (typeof result === "boolean") {
+      if (typeof result === "boolean" || typeof result === "number") {
         setStatus(`Executed: ${item} -> ${result}`);
       } else {
         setStatus(`Executed: ${item}`);
@@ -412,7 +439,7 @@ function runQueuedStep() {
   try {
     if (typeof item === "string") {
       const result = runCommand(engine, item);
-      if (typeof result === "boolean") {
+      if (typeof result === "boolean" || typeof result === "number") {
         setStatus(`Executed: ${item} -> ${result}`);
       } else {
         setStatus(`Executed: ${item}`);

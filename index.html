@@ -72,14 +72,45 @@
 
           <section class="rules-section">
             <h3>Біпери</h3>
+            <p>
+              У Карелі є <strong>корзина</strong>: біпери, які робот зібрав з клітинок, лежать у ній;
+              покласти біпер можна лише якщо в корзині щось є. Початкову кількість біперів у корзині
+              задає поле <code>bagCount</code> у JSON-карті (ціле число ≥ 0; якщо поля немає — 0).
+            </p>
             <dl>
               <dt><code>putBeeper()</code></dt>
-              <dd>Покласти біпер на поточну клітинку.</dd>
+              <dd>
+                Покласти один біпер з корзини на поточну клітинку. Якщо корзина порожня — помилка.
+              </dd>
               <dt><code>pickBeeper()</code></dt>
-              <dd>Підняти біпер з клітинки. Якщо біпера немає — помилка.</dd>
+              <dd>
+                Підняти біпер з клітинки в корзину. Якщо на клітинці немає біпера — помилка.
+              </dd>
               <dt><code>beepersPresent()</code></dt>
               <dd>Повертає <code>true</code>, якщо на клітинці є хоча б один біпер.</dd>
+              <dt><code>beepersInBag()</code></dt>
+              <dd>
+                Перевірка «чи є біпери в корзині»: <code>true</code>, якщо в корзині є хоча б один біпер.
+                Можна використовувати в умовах <code>if</code> та <code>while</code> (як інші предикати).
+              </dd>
+              <dt><code>bagEmpty()</code></dt>
+              <dd>
+                Перевірка «чи порожня корзина»: <code>true</code>, якщо біперів у корзині немає. Також
+                дозволена в <code>if</code> / <code>while</code>.
+              </dd>
+              <dt><code>bagCount()</code></dt>
+              <dd>
+                Повертає поточну кількість біперів у корзині (ціле число). Використовується
+                <strong>окремим рядком програми</strong> (не як умова в дужках <code>if</code> /
+                <code>while</code> — для умов беріть <code>beepersInBag()</code> або
+                <code>bagEmpty()</code>). Після кроку з цією командою у рядку статусу показується
+                значення, наприклад <code>Executed: bagCount() -&gt; 3</code>.
+              </dd>
             </dl>
+            <p>
+              Приклад: покласти біпер лише коли він є в корзині —
+              <code>if (beepersInBag()) { putBeeper(); }</code>.
+            </p>
           </section>
 
           <section class="rules-section">
@@ -112,8 +143,10 @@
 }</code></pre>
             <p>
               У дужках — один із предикатів: <code>frontIsClear()</code>, <code>leftIsClear()</code>,
-              <code>rightIsClear()</code>, <code>beepersPresent()</code>. Тіло лише в фігурних дужках
-              <code>{ }</code>. Вкладені <code>if</code> дозволені.
+              <code>rightIsClear()</code>, <code>beepersPresent()</code>, <code>beepersInBag()</code>,
+              <code>bagEmpty()</code>. Команда <code>bagCount()</code> тут не використовується — лише
+              перелічені предикати. Тіло лише в фігурних дужках <code>{ }</code>. Вкладені
+              <code>if</code> дозволені.
             </p>
           </section>
 
@@ -171,7 +204,7 @@ move();</code></pre>
                 У одному блоці не можна двічі оголосити функцію з тим самим імʼям (у тому числі якщо таке
                 імʼя вже є у глобальних функціях — повтор у внутрішньому блоці теж заборонений). Імʼя
                 функції не може збігатися з вбудованою командою (<code>move</code>, <code>turnLeft</code>,
-                предикати тощо) або бути зарезервованим словом: <code>if</code>, <code>while</code>,
+                предикати, <code>bagCount</code> тощо) або бути зарезервованим словом: <code>if</code>, <code>while</code>,
                 <code>for</code>, <code>function</code>, <code>let</code>, <code>const</code>,
                 <code>var</code>, <code>paintCorner</code>.
               </dd>
@@ -208,7 +241,9 @@ move();</code></pre>
                 <code>while</code>, один виклик <code>імʼя()</code> (у чергу додається тіло цієї
                 функції та межі області видимості), один рядок оголошення локальної
                 <code>function … () { … }</code>. Далі натискайте Step, щоб виконувати вже підставлені
-                команди по одній.
+                команди по одній. Якщо крок — це предикат (<code>frontIsClear()</code>,
+                <code>beepersInBag()</code> тощо) або <code>bagCount()</code>, у рядку статусу з’являється
+                результат після стрілки, наприклад <code>-&gt; true</code> або <code>-&gt; 5</code>.
               </dd>
               <dt><strong>Reset</strong></dt>
               <dd>Скинути світ і чергу виконання.</dd>
