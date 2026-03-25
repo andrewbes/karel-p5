@@ -23,8 +23,9 @@ const PAINT_CORNER_RE = /^paintCorner\("([^"]+)"\)$/;
 
 /** @typedef {string | { type: 'if', condition: string, body: Statement[] } | { type: 'for', count: number, body: Statement[] } | { type: 'while', condition: string, body: Statement[] } | { type: 'call', name: string } | { type: 'defun', name: string, body: Statement[] } | { type: 'scopePush' } | { type: 'scopePop' }} QueueItem */
 
-const IF_HEADER_RE = /^if\s*\((\w+)\(\)\)\s*\{\s*$/;
-const WHILE_HEADER_RE = /^while\s*\((\w+)\(\)\)\s*\{\s*$/;
+// Allow optional `!` negation: if (!frontIsClear()) { ... }
+const IF_HEADER_RE = /^if\s*\(\s*(!?)(\w+)\(\)\s*\)\s*\{\s*$/;
+const WHILE_HEADER_RE = /^while\s*\(\s*(!?)(\w+)\(\)\s*\)\s*\{\s*$/;
 const FUNCTION_HEADER_RE = /^function\s+(\w+)\s*\(\s*\)\s*\{\s*$/;
 /** JS-like: for (let i = 0; i < N; …) { — N must be a non-negative integer; last clause any increment */
 const FOR_HEADER_RE =
@@ -147,10 +148,14 @@ function tryParseStructuredStatement(lines, i) {
 
   const ifMatch = line.match(IF_HEADER_RE);
   if (ifMatch) {
-    const condition = ifMatch[1];
-    if (!CONDITION_NAMES.includes(condition)) {
-      throw new Error(`Line ${i + 1}: if condition must be one of: ${CONDITION_NAMES.join(", ")}`);
+    const neg = ifMatch[1] === "!";
+    const name = ifMatch[2];
+    if (!CONDITION_NAMES.includes(name)) {
+      throw new Error(
+        `Line ${i + 1}: if condition must be one of: ${CONDITION_NAMES.join(", ")} (optionally prefixed with "!")`
+      );
     }
+    const condition = neg ? `!${name}` : name;
     const inner = parseBlock(lines, i + 1, true);
     return { stmt: { type: "if", condition, body: inner.stmts }, nextIndex: inner.nextIndex };
   }
@@ -169,10 +174,14 @@ function tryParseStructuredStatement(lines, i) {
 
   const whileMatch = line.match(WHILE_HEADER_RE);
   if (whileMatch) {
-    const condition = whileMatch[1];
-    if (!CONDITION_NAMES.includes(condition)) {
-      throw new Error(`Line ${i + 1}: while condition must be one of: ${CONDITION_NAMES.join(", ")}`);
+    const neg = whileMatch[1] === "!";
+    const name = whileMatch[2];
+    if (!CONDITION_NAMES.includes(name)) {
+      throw new Error(
+        `Line ${i + 1}: while condition must be one of: ${CONDITION_NAMES.join(", ")} (optionally prefixed with "!")`
+      );
     }
+    const condition = neg ? `!${name}` : name;
     const inner = parseBlock(lines, i + 1, true);
     return { stmt: { type: "while", condition, body: inner.stmts }, nextIndex: inner.nextIndex };
   }

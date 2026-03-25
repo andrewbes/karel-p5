@@ -93,129 +93,43 @@ function refreshEditorSize() {
   editor.refresh();
 }
 
-editor.setValue(`// Місія на demo.json: двоє «дверей», два біпери на полі, біпер у кут (7,7), повернення на базу (0,0).
-// bagCount у карті = 8: після збору/кладки на зворотному шляху на кожному повороті — putBeeper(), якщо ще є біпери в корзині.
-// Після кожного turnLeft/turnRight — paintCorner на тій самій клітинці (як раніше).
+editor.setValue(`//Приклад коду
+
 function turnRight() {
   turnLeft();
   turnLeft();
   turnLeft();
 }
 
-// --- (0,0) схід → вертикальні двері на рядку 3 → (4,2), перший біпер ---
+//повернути вліво
 turnLeft();
+
+//замалювати клітинку червоним
 paintCorner("Red");
+
+//пройти три кроки
 for (let i = 0; i < 3; i++) {
   move();
 }
-turnRight();
-paintCorner("Orange");
-for (let i = 0; i < 3; i++) {
-  move();
-}
-move();
-turnRight();
-paintCorner("Yellow");
-move();
-if (beepersPresent()) {
-  pickBeeper();
-}
 
-// --- (4,2) → (6,5) через горизонтальні двері (5,4)→(5,5) ---
-turnLeft();
-paintCorner("White");
-for (let i = 0; i < 2; i++) {
-  move();
-}
-turnLeft();
-paintCorner("Red");
-for (let i = 0; i < 2; i++) {
-  move();
-}
-turnLeft();
-paintCorner("Orange");
-move();
+//повернути вправо
 turnRight();
-paintCorner("Green");
-move();
-turnRight();
-paintCorner("Cyan");
-move();
-if (beepersPresent()) {
-  pickBeeper();
-}
 
-// --- кут поля (7,7): з (6,5) на схід, потім на північ (обхід стіни n,6,6 біля (6,6)) ---
-move();
-turnLeft();
-paintCorner("Red");
-for (let i = 0; i < 2; i++) {
-  move();
-}
-putBeeper();
-
-// --- повернення на базу (0,0), схід; після кожного повороту — біпер з корзини, якщо ще є ---
-// (while там, де рух іде до стіни; дві короткі ділянки — парою move().)
-turnLeft();
-if (beepersInBag()) {
-  putBeeper();
-}
-paintCorner("Orange");
-turnLeft();
-if (beepersInBag()) {
-  putBeeper();
-}
-paintCorner("Yellow");
+//дійти до стіни
 while (frontIsClear()) {
   move();
 }
-turnRight();
-if (beepersInBag()) {
-  putBeeper();
-}
-paintCorner("Blue");
-move();
-move();
+
 turnLeft();
-if (beepersInBag()) {
-  putBeeper();
-}
-paintCorner("Magenta");
-move();
-move();
-turnRight();
-if (beepersInBag()) {
-  putBeeper();
-}
-paintCorner("Magenta");
-move();
-move();
-turnLeft();
-if (beepersInBag()) {
-  putBeeper();
-}
-paintCorner("Yellow");
-while (frontIsClear()) {
-  move();
-}
-turnRight();
-if (beepersInBag()) {
-  putBeeper();
-}
-paintCorner("White");
 while (frontIsClear()) {
   move();
 }
 turnLeft();
-if (beepersInBag()) {
-  putBeeper();
+while (!rightIsClear()) {
+  move();
 }
-paintCorner("Magenta");
-turnLeft();
-if (beepersInBag()) {
-  putBeeper();
-}
-paintCorner("White");
+
+paintCorner("Orange");
 `);
 
 let renderWidth = 480;
@@ -339,6 +253,16 @@ function queueItemNeedsAnimation(item) {
   return typeof item === "string" && commandNeedsStepAnimation(item);
 }
 
+function evalCondition(condition) {
+  const raw = String(condition ?? "");
+  const neg = raw.startsWith("!");
+  const name = neg ? raw.slice(1) : raw;
+  const fn = CONDITION_EVALUATORS[name];
+  if (!fn) throw new Error(`Unknown condition: ${raw}`);
+  const ok = fn(engine);
+  return neg ? !ok : ok;
+}
+
 function resolveFunctionBody(name) {
   for (let i = scopeStack.length - 1; i >= 0; i -= 1) {
     const frame = scopeStack[i];
@@ -348,9 +272,7 @@ function resolveFunctionBody(name) {
 }
 
 function runWhileQueueItem(item) {
-  const fn = CONDITION_EVALUATORS[item.condition];
-  if (!fn) throw new Error(`Unknown while condition: ${item.condition}`);
-  const ok = fn(engine);
+  const ok = evalCondition(item.condition);
   setStatus(`Executed: while (${item.condition}()) -> ${ok ? "repeat" : "exit"}`);
   if (ok) {
     queue.unshift(...item.body.map(statementToQueueItem), item);
@@ -403,9 +325,7 @@ function executeNext() {
         setStatus(`Executed: ${item}`);
       }
     } else if (item && item.type === "if") {
-      const fn = CONDITION_EVALUATORS[item.condition];
-      if (!fn) throw new Error(`Unknown if condition: ${item.condition}`);
-      const ok = fn(engine);
+      const ok = evalCondition(item.condition);
       setStatus(`Executed: if (${item.condition}()) -> ${ok}`);
       if (ok) {
         queue.unshift(...item.body.map(statementToQueueItem));
@@ -484,9 +404,7 @@ function runQueuedStep() {
         setStatus(`Executed: ${item}`);
       }
     } else if (item && item.type === "if") {
-      const fn = CONDITION_EVALUATORS[item.condition];
-      if (!fn) throw new Error(`Unknown if condition: ${item.condition}`);
-      const ok = fn(engine);
+      const ok = evalCondition(item.condition);
       setStatus(`Executed: if (${item.condition}()) -> ${ok}`);
       if (ok) {
         queue.unshift(...item.body.map(statementToQueueItem));
