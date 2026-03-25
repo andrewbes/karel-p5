@@ -254,7 +254,7 @@ export function createDemoWorldConfig() {
     startX: 0,
     startY: 0,
     startDir: "E",
-    beepers: ["4,2", "6,5"],
+    beepers: ["4,2", "6,5", "2,6:4"],
     bagCount: 8,
     walls,
   };

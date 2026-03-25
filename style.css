@@ -134,6 +134,23 @@ button:hover {
   border-color: var(--accent);
 }
 
+.load-world-file-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  padding: 0;
+  flex-shrink: 0;
+  border-radius: 8px;
+}
+
+.load-world-file-btn svg {
+  display: block;
+  width: 1.125rem;
+  height: 1.125rem;
+}
+
 .world-collapse-btn {
   display: none;
   align-items: center;
@@ -170,23 +187,45 @@ button:hover {
   display: block;
 }
 
-#statusLine {
+.status-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
   width: 100%;
   margin: 0.75rem 0 0;
-  color: var(--muted);
   font-size: 0.9rem;
+}
+
+.status-line-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--muted);
 }
 
 #statusLine.error {
   color: var(--danger);
 }
 
-.bag-count-line {
-  width: 100%;
-  margin: 0.35rem 0 0;
+.status-bag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
   color: var(--accent);
-  font-size: 0.88rem;
   font-variant-numeric: tabular-nums;
+}
+
+.status-bag-icon {
+  display: block;
+  width: 1.1em;
+  height: 1.1em;
+  flex-shrink: 0;
+}
+
+.bag-count-value {
+  min-width: 1ch;
 }
 
 .rules-dialog {
@@ -329,6 +368,7 @@ button:hover {
 
   .world-collapse-btn {
     display: inline-flex;
+    margin-left: auto;
   }
 
   /* Інакше flex:1 + min-height:0 дає висоту 0, коли батько .world-panel без фіксованої висоти */

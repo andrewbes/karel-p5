@@ -17,7 +17,8 @@ import {
 } from "./interpreter.js";
 
 const statusLine = document.getElementById("statusLine");
-const bagCountLine = document.getElementById("bagCountLine");
+const bagCountValue = document.getElementById("bagCountValue");
+const statusBagWrap = document.getElementById("statusBagWrap");
 const zoomValue = document.getElementById("zoomValue");
 const runBtn = document.getElementById("runBtn");
 const stepBtn = document.getElementById("stepBtn");
@@ -309,8 +310,12 @@ function setStatus(text, isError = false) {
 }
 
 function updateBagCountDisplay() {
-  if (!bagCountLine || !engine) return;
-  bagCountLine.textContent = `У корзині: ${engine.getBagCount()}`;
+  if (!bagCountValue || !engine) return;
+  const n = engine.getBagCount();
+  bagCountValue.textContent = String(n);
+  if (statusBagWrap) {
+    statusBagWrap.setAttribute("aria-label", `У корзині: ${n}`);
+  }
 }
 
 function getZoomDisplayBaseline() {

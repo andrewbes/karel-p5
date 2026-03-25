@@ -36,8 +36,29 @@
             Карта
             <select id="worldSelect" aria-label="Обрати карту з папки worlds"></select>
           </label>
-          <button type="button" id="loadWorldFileBtn" title="Завантажити світ з JSON-файлу">
-            З файлу…
+          <button
+            type="button"
+            id="loadWorldFileBtn"
+            class="load-world-file-btn"
+            title="Завантажити світ з JSON-файлу"
+            aria-label="Завантажити світ з JSON-файлу"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="17 8 12 3 7 8" />
+              <line x1="12" x2="12" y1="3" y2="15" />
+            </svg>
           </button>
           <button
             type="button"
@@ -53,8 +74,29 @@
         </div>
         <div id="worldPanelBody" class="world-panel-body">
           <div id="canvasContainer"></div>
-          <p id="statusLine">Ready.</p>
-          <p id="bagCountLine" class="bag-count-line" aria-live="polite">У корзині: —</p>
+          <div class="status-row" aria-live="polite">
+            <span id="statusLine" class="status-line-text">Ready.</span>
+            <span id="statusBagWrap" class="status-bag" title="У корзині" aria-label="У корзині: —">
+              <svg
+                class="status-bag-icon"
+                xmlns="http://www.w3.org/2000/svg"
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z" />
+                <path d="M3 6h18" />
+                <path d="M16 10a4 4 0 0 1-8 0" />
+              </svg>
+              <span id="bagCountValue" class="bag-count-value">—</span>
+            </span>
+          </div>
         </div>
       </section>
     </main>
@@ -92,11 +134,23 @@
               немає — 0). Воно <strong>не</strong> пов’язане з масивом <code>beepers</code>: біпери на клітинках
               на карті й біпери в корзині рахуються окремо. Кожен успішний <code>pickBeeper()</code> забирає
               один біпер з поточної клітинки й <strong>збільшує</strong> кількість у корзині на 1.
+              Початкове значення <code>bagCount</code> у JSON — <strong>не</strong> верхня межа: після збору з
+              поля число в корзині може бути <strong>більшим</strong> за початкове (обмеження лише тим, скільки
+              біперів на карті взагалі можна підняти).
             </p>
             <p>
               У масиві <code>beepers</code> клітинку можна записати як <code>"x,y"</code> (один біпер) або
               <code>"x,y:n"</code>, де <code>n</code> — скільки біперів лежить на клітинці спочатку. Якщо на
               клітинці більше одного біпера, над кулею показується число.
+            </p>
+            <p>Приклад карти (фрагмент JSON):</p>
+            <pre class="rules-code"><code>"beepers": [
+  "1,2",
+  "3,4:3"
+]</code></pre>
+            <p>
+              На <code>(1,2)</code> — один біпер; на <code>(3,4)</code> — одразу три. У демо-карті
+              <code>worlds/demo.json</code> є клітинка з кількома біперами в одному записі.
             </p>
             <dl>
               <dt><code>putBeeper()</code></dt>
