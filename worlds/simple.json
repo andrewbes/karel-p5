@@ -1,0 +1,18 @@
+{
+  "width": 8,
+  "height": 8,
+  "startX": 0,
+  "startY": 0,
+  "startDir": "E",
+  "bagCount": 0,
+  "beepers": ["7,7"],
+  "walls": [
+    "e,3,0",
+    "e,3,1",
+    "e,3,2",
+    "e,3,4",
+    "e,3,5",
+    "e,3,6",
+    "e,3,7"
+  ]
+}
