@@ -218,16 +218,21 @@
   move();
 }</code></pre>
             <p>
-              У дужках — один із предикатів: <code>frontIsClear()</code>, <code>leftIsClear()</code>,
+              У дужках — вираз із предикатів (лише перелічені нижче, завжди з дужками
+              <code>()</code>): <code>frontIsClear()</code>, <code>leftIsClear()</code>,
               <code>rightIsClear()</code>, <code>beepersPresent()</code>, <code>beepersInBag()</code>,
-              <code>bagEmpty()</code>. Команда <code>bagCount()</code> тут не використовується — лише
-              перелічені предикати. Тіло лише в фігурних дужках <code>{ }</code>. Вкладені
-              <code>if</code> дозволені.
+              <code>bagEmpty()</code>. Команда <code>bagCount()</code> тут не використовується. Можна
+              комбінувати операторами <code>&amp;&amp;</code> (і), <code>||</code> (або) та
+              <code>!</code> (заперечення), дужки <code>( )</code> для групування; пріоритет як у
+              JavaScript: <code>&amp;&amp;</code> сильніший за <code>||</code>. Тіло лише в
+              <code>{ }</code>. Вкладені <code>if</code> дозволені.
             </p>
-            <p>
-              Заперечення: можна поставити <code>!</code> перед предикатом, наприклад
-              <code>while (!rightIsClear()) { move(); }</code>.
-            </p>
+            <pre class="rules-code"><code>if (frontIsClear() &amp;&amp; beepersPresent()) {
+  pickBeeper();
+}
+while (!rightIsClear() || frontIsClear()) {
+  move();
+}</code></pre>
           </section>
 
           <section class="rules-section">

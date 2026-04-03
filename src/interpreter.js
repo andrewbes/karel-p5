@@ -23,9 +23,6 @@ const PAINT_CORNER_RE = /^paintCorner\("([^"]+)"\)$/;
 
 /** @typedef {string | { type: 'if', condition: string, body: Statement[] } | { type: 'for', count: number, body: Statement[] } | { type: 'while', condition: string, body: Statement[] } | { type: 'call', name: string } | { type: 'defun', name: string, body: Statement[] } | { type: 'scopePush' } | { type: 'scopePop' }} QueueItem */
 
-// Allow optional `!` negation: if (!frontIsClear()) { ... }
-const IF_HEADER_RE = /^if\s*\(\s*(!?)(\w+)\(\)\s*\)\s*\{\s*$/;
-const WHILE_HEADER_RE = /^while\s*\(\s*(!?)(\w+)\(\)\s*\)\s*\{\s*$/;
 const FUNCTION_HEADER_RE = /^function\s+(\w+)\s*\(\s*\)\s*\{\s*$/;
 /** JS-like: for (let i = 0; i < N; …) { — N must be a non-negative integer; last clause any increment */
 const FOR_HEADER_RE =
@@ -41,6 +38,186 @@ export const CONDITION_NAMES = [
 ];
 
 export const MAX_FOR_ITERATIONS = 10000;
+
+/**
+ * Витягує текст умови між першою `(` після `if`/`while` і відповідною `)` (з урахуванням вкладених дужок).
+ * Рядок має далі містити `{` (можуть бути пробіли).
+ * @returns {string | null}
+ */
+function extractConditionAfterKeyword(line, keyword) {
+  const re = new RegExp(`^${keyword}\\s*\\(`);
+  const m = line.match(re);
+  if (!m) return null;
+  let depth = 1;
+  let i = m[0].length;
+  const start = i;
+  while (depth > 0 && i < line.length) {
+    if (line[i] === "(") depth += 1;
+    else if (line[i] === ")") depth -= 1;
+    i += 1;
+  }
+  if (depth !== 0) return null;
+  const cond = line.slice(start, i - 1).trim();
+  const after = line.slice(i).trim();
+  if (!after.startsWith("{")) return null;
+  return cond;
+}
+
+/** @typedef {{ type: 'lparen' | 'rparen' | 'not' | 'and' | 'or' | 'pred', name?: string }} CondToken */
+
+/**
+ * Токенізація умови: предикати лише як `name()`, `&&`, `||`, `!`, дужки.
+ * @param {string} expr
+ * @returns {CondToken[]}
+ */
+function tokenizeCondition(expr) {
+  const s = expr.trim();
+  const tokens = [];
+  let i = 0;
+  while (i < s.length) {
+    while (i < s.length && /\s/.test(s[i])) i += 1;
+    if (i >= s.length) break;
+    const c = s[i];
+    if (c === "(") {
+      tokens.push({ type: "lparen" });
+      i += 1;
+      continue;
+    }
+    if (c === ")") {
+      tokens.push({ type: "rparen" });
+      i += 1;
+      continue;
+    }
+    if (c === "!") {
+      tokens.push({ type: "not" });
+      i += 1;
+      continue;
+    }
+    if (c === "&" && s[i + 1] === "&") {
+      tokens.push({ type: "and" });
+      i += 2;
+      continue;
+    }
+    if (c === "|" && s[i + 1] === "|") {
+      tokens.push({ type: "or" });
+      i += 2;
+      continue;
+    }
+    const idMatch = s.slice(i).match(/^([a-zA-Z_]\w*)/);
+    if (!idMatch) {
+      throw new Error(`Condition: unexpected character "${c}" at position ${i}`);
+    }
+    const name = idMatch[1];
+    i += name.length;
+    while (i < s.length && /\s/.test(s[i])) i += 1;
+    if (s[i] !== "(") {
+      throw new Error(`Condition: expected '(' after "${name}"`);
+    }
+    i += 1;
+    while (i < s.length && /\s/.test(s[i])) i += 1;
+    if (s[i] !== ")") {
+      throw new Error(`Condition: expected ')' after "${name}("`);
+    }
+    i += 1;
+    if (!CONDITION_NAMES.includes(name)) {
+      throw new Error(
+        `Condition: unknown predicate "${name}" (allowed: ${CONDITION_NAMES.join(", ")})`
+      );
+    }
+    tokens.push({ type: "pred", name });
+  }
+  return tokens;
+}
+
+/**
+ * @param {CondToken[]} tokens
+ * @param {object} engine
+ */
+function evaluateConditionTokens(tokens, engine) {
+  let pos = 0;
+  function peek() {
+    return tokens[pos];
+  }
+  function take() {
+    return tokens[pos++];
+  }
+  function parseOr() {
+    let left = parseAnd();
+    while (peek()?.type === "or") {
+      take();
+      const right = parseAnd();
+      left = left || right;
+    }
+    return left;
+  }
+  function parseAnd() {
+    let left = parseUnary();
+    while (peek()?.type === "and") {
+      take();
+      const right = parseUnary();
+      left = left && right;
+    }
+    return left;
+  }
+  function parseUnary() {
+    if (peek()?.type === "not") {
+      take();
+      return !parseUnary();
+    }
+    return parsePrimary();
+  }
+  function parsePrimary() {
+    const t = peek();
+    if (t?.type === "lparen") {
+      take();
+      const v = parseOr();
+      if (peek()?.type !== "rparen") {
+        throw new Error("Condition: missing ')'");
+      }
+      take();
+      return v;
+    }
+    if (t?.type === "pred") {
+      take();
+      const fn = CONDITION_EVALUATORS[t.name];
+      return fn(engine);
+    }
+    throw new Error("Condition: expected predicate or '('");
+  }
+  const result = parseOr();
+  if (pos < tokens.length) {
+    throw new Error("Condition: extra tokens after expression");
+  }
+  return result;
+}
+
+/**
+ * Обчислює умову `if`/`while`: `&&`, `||`, `!`, дужки; предикати лише `name()`.
+ * @param {string} expr
+ * @param {object} engine
+ */
+export function evaluateConditionExpression(expr, engine) {
+  const raw = String(expr ?? "").trim();
+  if (!raw) {
+    throw new Error("Empty condition");
+  }
+  /* Сумісність зі старим форматом без дужок: `frontIsClear` або `!rightIsClear` */
+  if (!/&&|\|\||\(/.test(raw) && /^!?(\w+)$/.test(raw)) {
+    const neg = raw.startsWith("!");
+    const name = neg ? raw.slice(1) : raw;
+    if (!CONDITION_NAMES.includes(name)) {
+      throw new Error(`Condition: unknown predicate "${name}"`);
+    }
+    const fn = CONDITION_EVALUATORS[name];
+    const v = fn(engine);
+    return neg ? !v : v;
+  }
+  const tokens = tokenizeCondition(raw);
+  if (tokens.length === 0) {
+    throw new Error("Empty condition");
+  }
+  return evaluateConditionTokens(tokens, engine);
+}
 
 /** Names that cannot be user functions (syntax / builtins). */
 const RESERVED_FUNCTION_NAMES = new Set([
@@ -146,18 +323,12 @@ function validateBlock(stmts, env, ctx) {
 function tryParseStructuredStatement(lines, i) {
   const line = lines[i].trim();
 
-  const ifMatch = line.match(IF_HEADER_RE);
-  if (ifMatch) {
-    const neg = ifMatch[1] === "!";
-    const name = ifMatch[2];
-    if (!CONDITION_NAMES.includes(name)) {
-      throw new Error(
-        `Line ${i + 1}: if condition must be one of: ${CONDITION_NAMES.join(", ")} (optionally prefixed with "!")`
-      );
-    }
-    const condition = neg ? `!${name}` : name;
+  if (/^if\s*\(/.test(line)) {
+    const cond = extractConditionAfterKeyword(line, "if");
+    if (cond === null) return null;
+    if (!cond) throw new Error(`Line ${i + 1}: empty if condition`);
     const inner = parseBlock(lines, i + 1, true);
-    return { stmt: { type: "if", condition, body: inner.stmts }, nextIndex: inner.nextIndex };
+    return { stmt: { type: "if", condition: cond, body: inner.stmts }, nextIndex: inner.nextIndex };
   }
 
   const forMatch = line.match(FOR_HEADER_RE);
@@ -172,18 +343,12 @@ function tryParseStructuredStatement(lines, i) {
     return { stmt: { type: "for", count, body: inner.stmts }, nextIndex: inner.nextIndex };
   }
 
-  const whileMatch = line.match(WHILE_HEADER_RE);
-  if (whileMatch) {
-    const neg = whileMatch[1] === "!";
-    const name = whileMatch[2];
-    if (!CONDITION_NAMES.includes(name)) {
-      throw new Error(
-        `Line ${i + 1}: while condition must be one of: ${CONDITION_NAMES.join(", ")} (optionally prefixed with "!")`
-      );
-    }
-    const condition = neg ? `!${name}` : name;
+  if (/^while\s*\(/.test(line)) {
+    const cond = extractConditionAfterKeyword(line, "while");
+    if (cond === null) return null;
+    if (!cond) throw new Error(`Line ${i + 1}: empty while condition`);
     const inner = parseBlock(lines, i + 1, true);
-    return { stmt: { type: "while", condition, body: inner.stmts }, nextIndex: inner.nextIndex };
+    return { stmt: { type: "while", condition: cond, body: inner.stmts }, nextIndex: inner.nextIndex };
   }
 
   return null;

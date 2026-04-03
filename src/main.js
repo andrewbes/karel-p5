@@ -12,7 +12,7 @@ import {
   parseProgram,
   runCommand,
   statementToQueueItem,
-  CONDITION_EVALUATORS,
+  evaluateConditionExpression,
   expandForToQueueItems,
 } from "./interpreter.js";
 
@@ -254,13 +254,7 @@ function queueItemNeedsAnimation(item) {
 }
 
 function evalCondition(condition) {
-  const raw = String(condition ?? "");
-  const neg = raw.startsWith("!");
-  const name = neg ? raw.slice(1) : raw;
-  const fn = CONDITION_EVALUATORS[name];
-  if (!fn) throw new Error(`Unknown condition: ${raw}`);
-  const ok = fn(engine);
-  return neg ? !ok : ok;
+  return evaluateConditionExpression(condition, engine);
 }
 
 function resolveFunctionBody(name) {
@@ -273,7 +267,7 @@ function resolveFunctionBody(name) {
 
 function runWhileQueueItem(item) {
   const ok = evalCondition(item.condition);
-  setStatus(`Executed: while (${item.condition}()) -> ${ok ? "repeat" : "exit"}`);
+  setStatus(`Executed: while (${item.condition}) -> ${ok ? "repeat" : "exit"}`);
   if (ok) {
     queue.unshift(...item.body.map(statementToQueueItem), item);
   }
@@ -326,7 +320,7 @@ function executeNext() {
       }
     } else if (item && item.type === "if") {
       const ok = evalCondition(item.condition);
-      setStatus(`Executed: if (${item.condition}()) -> ${ok}`);
+      setStatus(`Executed: if (${item.condition}) -> ${ok}`);
       if (ok) {
         queue.unshift(...item.body.map(statementToQueueItem));
       }
@@ -405,7 +399,7 @@ function runQueuedStep() {
       }
     } else if (item && item.type === "if") {
       const ok = evalCondition(item.condition);
-      setStatus(`Executed: if (${item.condition}()) -> ${ok}`);
+      setStatus(`Executed: if (${item.condition}) -> ${ok}`);
       if (ok) {
         queue.unshift(...item.body.map(statementToQueueItem));
       }
