@@ -14,6 +14,9 @@ import {
   statementToQueueItem,
   evaluateConditionExpression,
   expandForToQueueItems,
+  parseConditionAst,
+  conditionAstHasUserCall,
+  CONDITION_EVALUATORS,
 } from "./interpreter.js";
 
 const statusLine = document.getElementById("statusLine");
@@ -43,6 +46,10 @@ let queue = [];
 let userFunctions = Object.create(null);
 /** Lexical scopes for nested functions: innermost map last. */
 let scopeStack = [];
+/** Стек контекстів поетапного обчислення умов з викликами користувацьких функцій. */
+let condEvalStack = [];
+/** Слоти значень `return` під час cond-eval (вкладені виклики). */
+let condEvalReturnStack = [];
 /** Pending run schedule (rAF or timeout); cleared on reset. */
 let runLoopRafId = null;
 let runLoopTimeoutId = null;
@@ -61,6 +68,8 @@ function cancelRunSchedule() {
 function resetExecutionQueue() {
   queue = [];
   scopeStack = [];
+  condEvalStack = [];
+  condEvalReturnStack = [];
   cancelRunSchedule();
 }
 
@@ -250,11 +259,248 @@ function commandNeedsStepAnimation(cmd) {
 }
 
 function queueItemNeedsAnimation(item) {
+  if (item && typeof item === "object" && item.type === "condEvalResume") {
+    return false;
+  }
   return typeof item === "string" && commandNeedsStepAnimation(item);
 }
 
+/**
+ * @param {object} ast
+ * @param {{ kind: 'while', whileItem: object } | { kind: 'if', ifItem: object }} resume
+ */
+function condEvalQueueStart(ast, resume) {
+  condEvalStack.push({ resume, opStack: [] });
+  processCondEvalNode(ast);
+}
+
+/** @param {object} ast */
+function processCondEvalNode(ast) {
+  if (ast.type === "lit") {
+    condEvalFinish(ast.v);
+    return;
+  }
+  if (ast.type === "pred") {
+    condEvalFinish(CONDITION_EVALUATORS[ast.name](engine));
+    return;
+  }
+  if (ast.type === "user") {
+    enqueueUserCondEval(ast.name);
+    return;
+  }
+  const ctx = condEvalStack[condEvalStack.length - 1];
+  if (!ctx) throw new Error("Internal error: condition evaluation context");
+  if (ast.type === "not") {
+    ctx.opStack.push({ op: "not" });
+    processCondEvalNode(ast.a);
+    return;
+  }
+  if (ast.type === "and") {
+    ctx.opStack.push({ op: "andRight", right: ast.right });
+    processCondEvalNode(ast.left);
+    return;
+  }
+  if (ast.type === "or") {
+    ctx.opStack.push({ op: "orRight", right: ast.right });
+    processCondEvalNode(ast.left);
+    return;
+  }
+  throw new Error("Invalid condition AST");
+}
+
+function condEvalFinish(value) {
+  let v = Boolean(value);
+  const ctx = condEvalStack[condEvalStack.length - 1];
+  if (!ctx) throw new Error("Internal error: condition evaluation finish");
+  while (ctx.opStack.length) {
+    const top = ctx.opStack[ctx.opStack.length - 1];
+    if (top.op === "not") {
+      ctx.opStack.pop();
+      v = !v;
+      continue;
+    }
+    if (top.op === "andRight") {
+      ctx.opStack.pop();
+      if (!v) {
+        condEvalCompleteResume(false);
+        return;
+      }
+      processCondEvalNode(top.right);
+      return;
+    }
+    if (top.op === "orRight") {
+      ctx.opStack.pop();
+      if (v) {
+        condEvalCompleteResume(true);
+        return;
+      }
+      processCondEvalNode(top.right);
+      return;
+    }
+  }
+  condEvalCompleteResume(v);
+}
+
+function condEvalCompleteResume(value) {
+  const ctx = condEvalStack.pop();
+  if (!ctx) throw new Error("Internal error: condition evaluation complete");
+  const { resume } = ctx;
+  if (resume.kind === "while") {
+    const item = resume.whileItem;
+    setStatus(`Executed: while (${item.condition}) -> ${value}`);
+    if (value) {
+      queue.unshift(...item.body.map(statementToQueueItem), item);
+    }
+  } else if (resume.kind === "if") {
+    const item = resume.ifItem;
+    setStatus(`Executed: if (${item.condition}) -> ${value}`);
+    if (value) {
+      queue.unshift(...item.body.map(statementToQueueItem));
+    }
+  }
+}
+
+function enqueueUserCondEval(name) {
+  const body = resolveFunctionBody(name);
+  if (!body) throw new Error(`Unknown function: ${name}`);
+  const slot = { value: null, done: false };
+  condEvalReturnStack.push(slot);
+  queue.unshift(
+    { type: "scopePush" },
+    ...body.map(statementToQueueItem),
+    { type: "scopePop" },
+    { type: "condEvalResume", slot }
+  );
+}
+
+function runCondEvalResumeItem(item) {
+  const slot = item.slot;
+  if (!slot.done) {
+    throw new Error("Function must end with return <expression>;");
+  }
+  condEvalReturnStack.pop();
+  condEvalFinish(Boolean(slot.value));
+}
+
+const conditionEvalOpts = () => ({
+  evalUserCall: (name) => evalUserBooleanFunction(name),
+});
+
 function evalCondition(condition) {
-  return evaluateConditionExpression(condition, engine);
+  return evaluateConditionExpression(condition, engine, conditionEvalOpts());
+}
+
+/**
+ * Синхронно виконує тіло функції до першого `return` (для умов і `return` у черзі).
+ * @param {import("./interpreter.js").Statement[]} bodyStatements
+ * @param {{ requireReturn: boolean }} opts
+ * @returns {boolean | undefined}
+ */
+function runSyncBody(bodyStatements, opts) {
+  scopeStack.push(new Map());
+  const q = bodyStatements.map(statementToQueueItem);
+  try {
+    while (q.length > 0) {
+      const item = q.shift();
+      const ret = runSyncQueueItem(item, q);
+      if (ret != null && ret.kind === "return") {
+        if (opts.requireReturn) return ret.value;
+        return undefined;
+      }
+    }
+  } finally {
+    scopeStack.pop();
+  }
+  if (opts.requireReturn) {
+    throw new Error("Function must end with return <expression>;");
+  }
+  return undefined;
+}
+
+/**
+ * @param {unknown} item
+ * @param {unknown[]} q
+ * @returns {{ kind: 'return', value: boolean } | null}
+ */
+function runSyncQueueItem(item, q) {
+  if (typeof item === "string") {
+    runCommand(engine, item);
+    return null;
+  }
+  if (item.type === "if") {
+    if (evalCondition(item.condition)) {
+      q.unshift(...item.body.map(statementToQueueItem));
+    }
+    return null;
+  }
+  if (item.type === "for") {
+    q.unshift(...expandForToQueueItems(item.count, item.body));
+    return null;
+  }
+  if (item.type === "while") {
+    if (evalCondition(item.condition)) {
+      q.unshift(...item.body.map(statementToQueueItem), item);
+    }
+    return null;
+  }
+  if (item.type === "call") {
+    const callee = resolveFunctionBody(item.name);
+    if (!callee) throw new Error(`Unknown function: ${item.name}`);
+    runSyncBody(callee, { requireReturn: false });
+    return null;
+  }
+  if (item.type === "scopePush") {
+    scopeStack.push(new Map());
+    return null;
+  }
+  if (item.type === "scopePop") {
+    scopeStack.pop();
+    return null;
+  }
+  if (item.type === "defun") {
+    runDefunItem(item);
+    return null;
+  }
+  if (item.type === "return") {
+    const v = evaluateConditionExpression(item.expr, engine, conditionEvalOpts());
+    return { kind: "return", value: Boolean(v) };
+  }
+  throw new Error("Invalid program item.");
+}
+
+function evalUserBooleanFunction(name) {
+  const body = resolveFunctionBody(name);
+  if (!body) throw new Error(`Unknown function: ${name}`);
+  const v = runSyncBody(body, { requireReturn: true });
+  return Boolean(v);
+}
+
+function skipQueueUntilMatchingScopePop() {
+  let depth = 1;
+  while (queue.length > 0 && depth > 0) {
+    const next = queue[0];
+    if (next?.type === "scopePush") depth += 1;
+    else if (next?.type === "scopePop") depth -= 1;
+    queue.shift();
+  }
+  if (depth !== 0) {
+    throw new Error('Internal error: unbalanced scope while processing "return"');
+  }
+}
+
+function runReturnQueueItem(item) {
+  if (scopeStack.length === 0) {
+    throw new Error("return is only allowed inside a function body");
+  }
+  const v = evaluateConditionExpression(item.expr, engine, conditionEvalOpts());
+  const slot = condEvalReturnStack.length ? condEvalReturnStack[condEvalReturnStack.length - 1] : null;
+  if (slot) {
+    slot.value = Boolean(v);
+    slot.done = true;
+  }
+  skipQueueUntilMatchingScopePop();
+  runScopePop();
+  setStatus(`Executed: return (${item.expr})`);
 }
 
 function resolveFunctionBody(name) {
@@ -266,6 +512,11 @@ function resolveFunctionBody(name) {
 }
 
 function runWhileQueueItem(item) {
+  const ast = parseConditionAst(item.condition);
+  if (conditionAstHasUserCall(ast)) {
+    condEvalQueueStart(ast, { kind: "while", whileItem: item });
+    return;
+  }
   const ok = evalCondition(item.condition);
   setStatus(`Executed: while (${item.condition}) -> ${ok ? "repeat" : "exit"}`);
   if (ok) {
@@ -319,10 +570,15 @@ function executeNext() {
         setStatus(`Executed: ${item}`);
       }
     } else if (item && item.type === "if") {
-      const ok = evalCondition(item.condition);
-      setStatus(`Executed: if (${item.condition}) -> ${ok}`);
-      if (ok) {
-        queue.unshift(...item.body.map(statementToQueueItem));
+      const ast = parseConditionAst(item.condition);
+      if (conditionAstHasUserCall(ast)) {
+        condEvalQueueStart(ast, { kind: "if", ifItem: item });
+      } else {
+        const ok = evalCondition(item.condition);
+        setStatus(`Executed: if (${item.condition}) -> ${ok}`);
+        if (ok) {
+          queue.unshift(...item.body.map(statementToQueueItem));
+        }
       }
     } else if (item && item.type === "for") {
       const expanded = expandForToQueueItems(item.count, item.body);
@@ -338,6 +594,10 @@ function executeNext() {
       runScopePop();
     } else if (item && item.type === "defun") {
       runDefunItem(item);
+    } else if (item && item.type === "return") {
+      runReturnQueueItem(item);
+    } else if (item && item.type === "condEvalResume") {
+      runCondEvalResumeItem(item);
     } else {
       throw new Error("Invalid program item.");
     }
@@ -398,10 +658,15 @@ function runQueuedStep() {
         setStatus(`Executed: ${item}`);
       }
     } else if (item && item.type === "if") {
-      const ok = evalCondition(item.condition);
-      setStatus(`Executed: if (${item.condition}) -> ${ok}`);
-      if (ok) {
-        queue.unshift(...item.body.map(statementToQueueItem));
+      const ast = parseConditionAst(item.condition);
+      if (conditionAstHasUserCall(ast)) {
+        condEvalQueueStart(ast, { kind: "if", ifItem: item });
+      } else {
+        const ok = evalCondition(item.condition);
+        setStatus(`Executed: if (${item.condition}) -> ${ok}`);
+        if (ok) {
+          queue.unshift(...item.body.map(statementToQueueItem));
+        }
       }
     } else if (item && item.type === "for") {
       const expanded = expandForToQueueItems(item.count, item.body);
@@ -417,6 +682,10 @@ function runQueuedStep() {
       runScopePop();
     } else if (item && item.type === "defun") {
       runDefunItem(item);
+    } else if (item && item.type === "return") {
+      runReturnQueueItem(item);
+    } else if (item && item.type === "condEvalResume") {
+      runCondEvalResumeItem(item);
     } else {
       throw new Error("Invalid program item.");
     }

@@ -19,9 +19,10 @@ const PAINT_CORNER_RE = /^paintCorner\("([^"]+)"\)$/;
 /** @typedef {{ type: 'while', condition: string, body: Statement[] }} WhileStmt */
 /** @typedef {{ type: 'call', name: string }} CallStmt */
 /** @typedef {{ type: 'defun', name: string, body: Statement[] }} DefunStmt */
-/** @typedef {CmdStmt | IfStmt | ForStmt | WhileStmt | CallStmt | DefunStmt} Statement */
+/** @typedef {{ type: 'return', expr: string }} ReturnStmt */
+/** @typedef {CmdStmt | IfStmt | ForStmt | WhileStmt | CallStmt | DefunStmt | ReturnStmt} Statement */
 
-/** @typedef {string | { type: 'if', condition: string, body: Statement[] } | { type: 'for', count: number, body: Statement[] } | { type: 'while', condition: string, body: Statement[] } | { type: 'call', name: string } | { type: 'defun', name: string, body: Statement[] } | { type: 'scopePush' } | { type: 'scopePop' }} QueueItem */
+/** @typedef {string | { type: 'if', condition: string, body: Statement[] } | { type: 'for', count: number, body: Statement[] } | { type: 'while', condition: string, body: Statement[] } | { type: 'call', name: string } | { type: 'defun', name: string, body: Statement[] } | { type: 'return', expr: string } | { type: 'scopePush' } | { type: 'scopePop' } | { type: 'condEvalResume', slot: { value: boolean | null, done: boolean } }} QueueItem */
 
 const FUNCTION_HEADER_RE = /^function\s+(\w+)\s*\(\s*\)\s*\{\s*$/;
 /** JS-like: for (let i = 0; i < N; …) { — N must be a non-negative integer; last clause any increment */
@@ -63,10 +64,10 @@ function extractConditionAfterKeyword(line, keyword) {
   return cond;
 }
 
-/** @typedef {{ type: 'lparen' | 'rparen' | 'not' | 'and' | 'or' | 'pred', name?: string }} CondToken */
+/** @typedef {{ type: 'lparen' | 'rparen' | 'not' | 'and' | 'or' | 'pred' | 'usercall' | 'bool', name?: string, value?: boolean }} CondToken */
 
 /**
- * Токенізація умови: предикати лише як `name()`, `&&`, `||`, `!`, дужки.
+ * Токенізація умови: предикати як `name()`, літерали `true` / `false`, `&&`, `||`, `!`, дужки.
  * @param {string} expr
  * @returns {CondToken[]}
  */
@@ -109,6 +110,10 @@ function tokenizeCondition(expr) {
     }
     const name = idMatch[1];
     i += name.length;
+    if (name === "true" || name === "false") {
+      tokens.push({ type: "bool", value: name === "true" });
+      continue;
+    }
     while (i < s.length && /\s/.test(s[i])) i += 1;
     if (s[i] !== "(") {
       throw new Error(`Condition: expected '(' after "${name}"`);
@@ -119,12 +124,11 @@ function tokenizeCondition(expr) {
       throw new Error(`Condition: expected ')' after "${name}("`);
     }
     i += 1;
-    if (!CONDITION_NAMES.includes(name)) {
-      throw new Error(
-        `Condition: unknown predicate "${name}" (allowed: ${CONDITION_NAMES.join(", ")})`
-      );
+    if (CONDITION_NAMES.includes(name)) {
+      tokens.push({ type: "pred", name });
+    } else {
+      tokens.push({ type: "usercall", name });
     }
-    tokens.push({ type: "pred", name });
   }
   return tokens;
 }
@@ -132,8 +136,9 @@ function tokenizeCondition(expr) {
 /**
  * @param {CondToken[]} tokens
  * @param {object} engine
+ * @param {{ evalUserCall?: (name: string) => boolean }} [opts]
  */
-function evaluateConditionTokens(tokens, engine) {
+function evaluateConditionTokens(tokens, engine, opts = {}) {
   let pos = 0;
   function peek() {
     return tokens[pos];
@@ -182,7 +187,20 @@ function evaluateConditionTokens(tokens, engine) {
       const fn = CONDITION_EVALUATORS[t.name];
       return fn(engine);
     }
-    throw new Error("Condition: expected predicate or '('");
+    if (t?.type === "usercall") {
+      take();
+      if (typeof opts.evalUserCall !== "function") {
+        throw new Error(
+          `Condition: "${t.name}()" is a user function — allowed only inside functions with return (built-in predicates: ${CONDITION_NAMES.join(", ")})`
+        );
+      }
+      return opts.evalUserCall(t.name);
+    }
+    if (t?.type === "bool") {
+      take();
+      return t.value;
+    }
+    throw new Error("Condition: expected predicate, user call, literal, or '('");
   }
   const result = parseOr();
   if (pos < tokens.length) {
@@ -192,20 +210,168 @@ function evaluateConditionTokens(tokens, engine) {
 }
 
 /**
- * Обчислює умову `if`/`while`: `&&`, `||`, `!`, дужки; предикати лише `name()`.
- * @param {string} expr
- * @param {object} engine
+ * AST умови для поетапного обчислення з чергою (користувацькі функції).
+ * @typedef {{ type: 'lit', v: boolean }} CondAstLit
+ * @typedef {{ type: 'pred', name: string }} CondAstPred
+ * @typedef {{ type: 'user', name: string }} CondAstUser
+ * @typedef {{ type: 'not', a: CondAst }} CondAstNot
+ * @typedef {{ type: 'and', left: CondAst, right: CondAst }} CondAstAnd
+ * @typedef {{ type: 'or', left: CondAst, right: CondAst }} CondAstOr
+ * @typedef {CondAstLit | CondAstPred | CondAstUser | CondAstNot | CondAstAnd | CondAstOr} CondAst
  */
-export function evaluateConditionExpression(expr, engine) {
+
+/**
+ * @param {CondToken[]} tokens
+ * @param {number} i
+ * @returns {[CondAst, number]}
+ */
+function parseCondOr(tokens, i) {
+  let [left, j] = parseCondAnd(tokens, i);
+  while (tokens[j]?.type === "or") {
+    const [right, k] = parseCondAnd(tokens, j + 1);
+    left = { type: "or", left, right };
+    j = k;
+  }
+  return [left, j];
+}
+
+/**
+ * @param {CondToken[]} tokens
+ * @param {number} i
+ * @returns {[CondAst, number]}
+ */
+function parseCondAnd(tokens, i) {
+  let [left, j] = parseCondUnary(tokens, i);
+  while (tokens[j]?.type === "and") {
+    const [right, k] = parseCondUnary(tokens, j + 1);
+    left = { type: "and", left, right };
+    j = k;
+  }
+  return [left, j];
+}
+
+/**
+ * @param {CondToken[]} tokens
+ * @param {number} i
+ * @returns {[CondAst, number]}
+ */
+function parseCondUnary(tokens, i) {
+  if (tokens[i]?.type === "not") {
+    const [inner, j] = parseCondUnary(tokens, i + 1);
+    return [{ type: "not", a: inner }, j];
+  }
+  return parseCondPrimary(tokens, i);
+}
+
+/**
+ * @param {CondToken[]} tokens
+ * @param {number} i
+ * @returns {[CondAst, number]}
+ */
+function parseCondPrimary(tokens, i) {
+  const t = tokens[i];
+  if (t?.type === "lparen") {
+    const [inner, j] = parseCondOr(tokens, i + 1);
+    if (tokens[j]?.type !== "rparen") {
+      throw new Error("Condition: missing ')'");
+    }
+    return [inner, j + 1];
+  }
+  if (t?.type === "bool") {
+    return [{ type: "lit", v: t.value }, i + 1];
+  }
+  if (t?.type === "pred") {
+    return [{ type: "pred", name: t.name }, i + 1];
+  }
+  if (t?.type === "usercall") {
+    return [{ type: "user", name: t.name }, i + 1];
+  }
+  throw new Error("Condition: expected '(', literal, predicate, or user call");
+}
+
+/**
+ * Розбір умови в AST (для `if`/`while` з покроковим виконанням користувацьких функцій).
+ * @param {string} expr
+ * @returns {CondAst}
+ */
+export function parseConditionAst(expr) {
   const raw = String(expr ?? "").trim();
   if (!raw) {
     throw new Error("Empty condition");
   }
-  /* Сумісність зі старим форматом без дужок: `frontIsClear` або `!rightIsClear` */
   if (!/&&|\|\||\(/.test(raw) && /^!?(\w+)$/.test(raw)) {
     const neg = raw.startsWith("!");
     const name = neg ? raw.slice(1) : raw;
+    if (name === "true" || name === "false") {
+      const v = name === "true";
+      const lit = { type: "lit", v };
+      return neg ? { type: "not", a: lit } : lit;
+    }
+    if (CONDITION_NAMES.includes(name)) {
+      const node = { type: "pred", name };
+      return neg ? { type: "not", a: node } : node;
+    }
+    const node = { type: "user", name };
+    return neg ? { type: "not", a: node } : node;
+  }
+  const tokens = tokenizeCondition(raw);
+  if (tokens.length === 0) {
+    throw new Error("Empty condition");
+  }
+  const [ast, pos] = parseCondOr(tokens, 0);
+  if (pos !== tokens.length) {
+    throw new Error("Condition: extra tokens after expression");
+  }
+  return ast;
+}
+
+/**
+ * @param {CondAst} ast
+ * @returns {boolean}
+ */
+export function conditionAstHasUserCall(ast) {
+  if (!ast) return false;
+  switch (ast.type) {
+    case "lit":
+    case "pred":
+      return false;
+    case "user":
+      return true;
+    case "not":
+      return conditionAstHasUserCall(ast.a);
+    case "and":
+      return conditionAstHasUserCall(ast.left) || conditionAstHasUserCall(ast.right);
+    case "or":
+      return conditionAstHasUserCall(ast.left) || conditionAstHasUserCall(ast.right);
+    default:
+      return false;
+  }
+}
+
+/**
+ * Обчислює умову `if`/`while`: `&&`, `||`, `!`, дужки; предикати `name()` або `foo()` (користувацька функція з `return`).
+ * @param {string} expr
+ * @param {object} engine
+ * @param {{ evalUserCall?: (name: string) => boolean }} [opts]
+ */
+export function evaluateConditionExpression(expr, engine, opts = {}) {
+  const raw = String(expr ?? "").trim();
+  if (!raw) {
+    throw new Error("Empty condition");
+  }
+  /* Сумісність зі старим форматом без дужок: `frontIsClear`, `!rightIsClear`, `true`, `false` */
+  if (!/&&|\|\||\(/.test(raw) && /^!?(\w+)$/.test(raw)) {
+    const neg = raw.startsWith("!");
+    const name = neg ? raw.slice(1) : raw;
+    if (name === "true" || name === "false") {
+      const v = name === "true";
+      return neg ? !v : v;
+    }
     if (!CONDITION_NAMES.includes(name)) {
+      if (typeof opts.evalUserCall === "function") {
+        const v = opts.evalUserCall(name);
+        return neg ? !v : v;
+      }
       throw new Error(`Condition: unknown predicate "${name}"`);
     }
     const fn = CONDITION_EVALUATORS[name];
@@ -216,7 +382,7 @@ export function evaluateConditionExpression(expr, engine) {
   if (tokens.length === 0) {
     throw new Error("Empty condition");
   }
-  return evaluateConditionTokens(tokens, engine);
+  return evaluateConditionTokens(tokens, engine, opts);
 }
 
 /** Names that cannot be user functions (syntax / builtins). */
@@ -229,6 +395,9 @@ const RESERVED_FUNCTION_NAMES = new Set([
   "const",
   "var",
   "paintCorner",
+  "return",
+  "true",
+  "false",
 ]);
 const BUILTIN_COMMAND_NAMES = new Set([
   "move",
@@ -276,6 +445,23 @@ function validateUserFunctionName(name, lineNumber) {
  * @param {string} line
  * @returns {CallStmt | null}
  */
+/**
+ * @param {string} line
+ * @returns {{ type: 'return', expr: string } | null}
+ */
+function tryParseReturnLine(line) {
+  const trimmed = line.trim();
+  if (!/^return\s+/i.test(trimmed)) return null;
+  const m = trimmed.match(/^return\s+(.+)$/i);
+  if (!m) return null;
+  let expr = m[1].trim();
+  if (expr.endsWith(";")) {
+    expr = expr.slice(0, -1).trim();
+  }
+  if (!expr) throw new Error("Empty return expression");
+  return { type: "return", expr };
+}
+
 function tryParseCall(line) {
   const trimmed = line.trim();
   const m = trimmed.match(/^(\w+)\(\)\s*;?\s*$/);
@@ -311,6 +497,8 @@ function validateBlock(stmts, env, ctx) {
       currentEnv = new Set([...currentEnv, st.name]);
     } else if (st.type === "if" || st.type === "for" || st.type === "while") {
       validateBlock(st.body, currentEnv, ctx);
+    } else if (st.type === "return") {
+      /* вираз перевіряється під час виконання */
     }
   }
 }
@@ -320,14 +508,14 @@ function validateBlock(stmts, env, ctx) {
  * @param {number} i
  * @returns {{ stmt: Statement, nextIndex: number } | null}
  */
-function tryParseStructuredStatement(lines, i) {
+function tryParseStructuredStatement(lines, i, allowReturn) {
   const line = lines[i].trim();
 
   if (/^if\s*\(/.test(line)) {
     const cond = extractConditionAfterKeyword(line, "if");
     if (cond === null) return null;
     if (!cond) throw new Error(`Line ${i + 1}: empty if condition`);
-    const inner = parseBlock(lines, i + 1, true);
+    const inner = parseBlock(lines, i + 1, true, allowReturn);
     return { stmt: { type: "if", condition: cond, body: inner.stmts }, nextIndex: inner.nextIndex };
   }
 
@@ -339,7 +527,7 @@ function tryParseStructuredStatement(lines, i) {
         `Line ${i + 1}: for loop count must be at most ${MAX_FOR_ITERATIONS} (got ${count})`
       );
     }
-    const inner = parseBlock(lines, i + 1, true);
+    const inner = parseBlock(lines, i + 1, true, allowReturn);
     return { stmt: { type: "for", count, body: inner.stmts }, nextIndex: inner.nextIndex };
   }
 
@@ -347,7 +535,7 @@ function tryParseStructuredStatement(lines, i) {
     const cond = extractConditionAfterKeyword(line, "while");
     if (cond === null) return null;
     if (!cond) throw new Error(`Line ${i + 1}: empty while condition`);
-    const inner = parseBlock(lines, i + 1, true);
+    const inner = parseBlock(lines, i + 1, true, allowReturn);
     return { stmt: { type: "while", condition: cond, body: inner.stmts }, nextIndex: inner.nextIndex };
   }
 
@@ -358,9 +546,10 @@ function tryParseStructuredStatement(lines, i) {
  * @param {string[]} lines trimmed non-empty, non-comment lines
  * @param {number} start
  * @param {boolean} mustCloseWithBrace — if true, block must end with `}` before EOF
+ * @param {boolean} allowReturn — `return` дозволено лише всередині `function … { }`
  * @returns {{ stmts: Statement[], nextIndex: number }}
  */
-function parseBlock(lines, start, mustCloseWithBrace) {
+function parseBlock(lines, start, mustCloseWithBrace, allowReturn) {
   const stmts = [];
   let i = start;
   while (i < lines.length) {
@@ -370,10 +559,20 @@ function parseBlock(lines, start, mustCloseWithBrace) {
       return { stmts, nextIndex: i + 1 };
     }
 
-    const structured = tryParseStructuredStatement(lines, i);
+    const structured = tryParseStructuredStatement(lines, i, allowReturn);
     if (structured) {
       stmts.push(structured.stmt);
       i = structured.nextIndex;
+      continue;
+    }
+
+    const retStmt = tryParseReturnLine(line);
+    if (retStmt) {
+      if (!allowReturn) {
+        throw new Error(`Line ${i + 1}: return is only allowed inside a function body`);
+      }
+      stmts.push(retStmt);
+      i += 1;
       continue;
     }
 
@@ -388,7 +587,7 @@ function parseBlock(lines, start, mustCloseWithBrace) {
     if (funMatch) {
       const name = funMatch[1];
       validateUserFunctionName(name, i + 1);
-      const inner = parseBlock(lines, i + 1, true);
+      const inner = parseBlock(lines, i + 1, true, allowReturn);
       stmts.push({ type: "defun", name, body: inner.stmts });
       i = inner.nextIndex;
       continue;
@@ -420,6 +619,10 @@ function parseTopLevel(lines) {
       throw new Error(`Line ${i + 1}: Unexpected "}"`);
     }
 
+    if (/^\s*return\b/.test(line)) {
+      throw new Error(`Line ${i + 1}: return is only allowed inside a function body`);
+    }
+
     const funMatch = line.match(FUNCTION_HEADER_RE);
     if (funMatch) {
       const name = funMatch[1];
@@ -427,13 +630,13 @@ function parseTopLevel(lines) {
       if (functions[name]) {
         throw new Error(`Line ${i + 1}: Duplicate function "${name}"`);
       }
-      const inner = parseBlock(lines, i + 1, true);
+      const inner = parseBlock(lines, i + 1, true, true);
       functions[name] = inner.stmts;
       i = inner.nextIndex;
       continue;
     }
 
-    const structured = tryParseStructuredStatement(lines, i);
+    const structured = tryParseStructuredStatement(lines, i, false);
     if (structured) {
       mainStmts.push(structured.stmt);
       i = structured.nextIndex;
@@ -489,6 +692,7 @@ export function statementToQueueItem(s) {
   if (s.type === "while") return { type: "while", condition: s.condition, body: s.body };
   if (s.type === "call") return { type: "call", name: s.name };
   if (s.type === "defun") return { type: "defun", name: s.name, body: s.body };
+  if (s.type === "return") return { type: "return", expr: s.expr };
   throw new Error("Unknown statement type");
 }
 
