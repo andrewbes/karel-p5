@@ -84,9 +84,57 @@ button:hover {
 }
 
 .panel h2 {
-  margin: 0 0 0.6rem 0;
+  margin: 0;
   font-size: 0.95rem;
   color: var(--muted);
+}
+
+.panel-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  margin-bottom: 0.6rem;
+  flex-shrink: 0;
+}
+
+.panel-toolbar > h2 {
+  justify-self: start;
+}
+
+.panel-toolbar > .toolbar-label,
+.panel-toolbar > .toolbar-end {
+  justify-self: end;
+}
+
+.toolbar-end {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.toolbar-label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.toolbar-label select {
+  padding: 0.35rem 0.5rem;
+  border: 1px solid #3f3f3f;
+  border-radius: 8px;
+  background: #262626;
+  color: var(--text);
+  font-size: 0.85rem;
+}
+
+.toolbar-label select:focus {
+  outline: 1px solid var(--accent);
+  border-color: var(--accent);
 }
 
 .editor-panel .CodeMirror {
@@ -103,35 +151,8 @@ button:hover {
   min-height: 0;
 }
 
-.world-toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem 0.75rem;
-  margin-bottom: 0.5rem;
-  font-size: 0.9rem;
-}
-
-.world-map-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  color: var(--muted);
-}
-
-.world-toolbar select {
-  min-width: 10rem;
-  padding: 0.35rem 0.5rem;
-  border-radius: 8px;
-  border: 1px solid #3f3f3f;
-  background: #1e1e1e;
-  color: var(--text);
-  font: inherit;
-}
-
-.world-toolbar select:focus {
-  outline: 1px solid var(--accent);
-  border-color: var(--accent);
+.world-map-label select {
+  min-width: 8rem;
 }
 
 .load-world-file-btn {
@@ -351,6 +372,15 @@ button:hover {
     display: none;
   }
 
+  .panel-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .panel-toolbar > .toolbar-label,
+  .panel-toolbar > .toolbar-end {
+    justify-self: end;
+  }
+
   .layout {
     display: flex;
     flex-direction: column;
@@ -368,7 +398,6 @@ button:hover {
 
   .world-collapse-btn {
     display: inline-flex;
-    margin-left: auto;
   }
 
   /* Інакше flex:1 + min-height:0 дає висоту 0, коли батько .world-panel без фіксованої висоти */

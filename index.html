@@ -3,20 +3,20 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Karel p5.js Playground</title>
+    <title>Karel Playground</title>
     <link
       rel="stylesheet"
       href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css"
     />
-    <link rel="stylesheet" href="./style.css" />
+    <link rel="stylesheet" href="./style.css?v=2" />
   </head>
   <body>
     <header class="topbar">
       <div class="controls">
-        <button id="runBtn">Run</button>
-        <button id="stepBtn">Step</button>
-        <button id="resetBtn">Reset</button>
-        <button id="rulesBtn" type="button" title="Довідка з команд">Rules</button>
+        <button id="runBtn">Старт</button>
+        <button id="stepBtn">Крок</button>
+        <button id="resetBtn">Рестарт</button>
+        <button id="rulesBtn" type="button" title="Довідка з команд">Правила</button>
         <button id="zoomInBtn" title="Zoom in">+</button>
         <button id="zoomOutBtn" title="Zoom out">-</button>
         <span id="zoomValue">100%</span>
@@ -25,57 +25,68 @@
 
     <main class="layout">
       <section class="panel editor-panel">
-        <h2>Code</h2>
+        <div class="panel-toolbar editor-toolbar">
+          <h2>Код</h2>
+          <label class="toolbar-label dialect-label">
+            Мова
+            <select id="dialectSelect" aria-label="Мова програми">
+              <option value="js">JavaScript</option>
+              <option value="python">Python</option>
+            </select>
+          </label>
+        </div>
         <textarea id="codeInput"></textarea>
       </section>
 
       <section class="panel world-panel">
-        <h2>World</h2>
-        <div class="world-toolbar">
-          <label class="world-map-label">
-            Карта
-            <select id="worldSelect" aria-label="Обрати карту з папки worlds"></select>
-          </label>
-          <button
-            type="button"
-            id="loadWorldFileBtn"
-            class="load-world-file-btn"
-            title="Завантажити світ з JSON-файлу"
-            aria-label="Завантажити світ з JSON-файлу"
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="20"
-              height="20"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              aria-hidden="true"
+        <div class="panel-toolbar world-toolbar">
+          <h2>Світ</h2>
+          <div class="toolbar-end world-toolbar-end">
+            <label class="toolbar-label world-map-label">
+              Карта
+              <select id="worldSelect" aria-label="Обрати карту з папки worlds"></select>
+            </label>
+            <button
+              type="button"
+              id="loadWorldFileBtn"
+              class="load-world-file-btn"
+              title="Завантажити світ з JSON-файлу"
+              aria-label="Завантажити світ з JSON-файлу"
             >
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-              <polyline points="17 8 12 3 7 8" />
-              <line x1="12" x2="12" y1="3" y2="15" />
-            </svg>
-          </button>
-          <button
-            type="button"
-            id="worldCollapseBtn"
-            class="world-collapse-btn"
-            aria-expanded="true"
-            aria-controls="worldPanelBody"
-            title="Згорнути поле світу"
-          >
-            ▼
-          </button>
-          <input type="file" id="worldFileInput" accept=".json,application/json" hidden />
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="17 8 12 3 7 8" />
+                <line x1="12" x2="12" y1="3" y2="15" />
+              </svg>
+            </button>
+            <input type="file" id="worldFileInput" accept=".json,application/json" hidden />
+            <button
+              type="button"
+              id="worldCollapseBtn"
+              class="world-collapse-btn"
+              aria-expanded="true"
+              aria-controls="worldPanelBody"
+              title="Згорнути поле світу"
+            >
+              ▼
+            </button>
+          </div>
         </div>
         <div id="worldPanelBody" class="world-panel-body">
           <div id="canvasContainer"></div>
           <div class="status-row" aria-live="polite">
-            <span id="statusLine" class="status-line-text">Ready.</span>
+            <span id="statusLine" class="status-line-text">Готово.</span>
             <span id="statusBagWrap" class="status-bag" title="У корзині" aria-label="У корзині: —">
               <svg
                 class="status-bag-icon"
@@ -111,8 +122,10 @@
         </header>
         <div class="rules-body">
           <p class="rules-intro">
-            Програма — послідовність рядків (як у JavaScript). Рядок може закінчуватися на
-            <code>;</code> або ні. Коментарі: рядок, що починається з <code>//</code>.
+            Оберіть мову в списку над редактором: <strong>JavaScript</strong> або
+            <strong>Python</strong>. У кожному режимі діє свій синтаксис блоків і оголошення функцій;
+            команди Karel (<code>move()</code>, <code>turnLeft()</code> тощо) однакові. Коментарі:
+            <code>//</code> (JS) або <code>#</code> (Python). Крапка з комою в кінці рядка необовʼязкова.
           </p>
 
           <section class="rules-section">
@@ -213,46 +226,48 @@
           </section>
 
           <section class="rules-section">
-            <h3>Умова</h3>
+            <h3>Умова if</h3>
+            <p><strong>JavaScript</strong> — дужки й фігурні дужки:</p>
             <pre class="rules-code"><code>if (frontIsClear()) {
   move();
 }</code></pre>
+            <p><strong>Python</strong> — двокрапка й відступи:</p>
+            <pre class="rules-code"><code>if frontIsClear():
+    move()</code></pre>
             <p>
-              У дужках — вираз із предикатів (лише перелічені нижче, завжди з дужками
-              <code>()</code>): <code>frontIsClear()</code>, <code>leftIsClear()</code>,
-              <code>rightIsClear()</code>, <code>beepersPresent()</code>, <code>beepersInBag()</code>,
-              <code>bagEmpty()</code>, а також виклик власної функції
-              <code>імʼя()</code>, якщо вона оголошена з <code>return</code> (див. розділ «Власні
-              функції») і повертає логічне значення. Команда <code>bagCount()</code> тут не
-              використовується. Можна комбінувати операторами <code>&amp;&amp;</code> (і),
-              <code>||</code> (або) та <code>!</code> (заперечення), дужки <code>( )</code> для
-              групування; пріоритет як у JavaScript: <code>&amp;&amp;</code> сильніший за
-              <code>||</code>. Тіло лише в <code>{ }</code>. Вкладені <code>if</code> дозволені.
+              Умова — предикати з <code>()</code> (<code>frontIsClear()</code>,
+              <code>beepersInBag()</code> тощо), виклики власних функцій з <code>return</code>, літерали
+              <code>true</code> / <code>false</code>. У JS: <code>&amp;&amp;</code>, <code>||</code>,
+              <code>!</code>. У Python: <code>and</code>, <code>or</code>, <code>not</code> (наприклад
+              <code>not rightIsClear()</code>).
             </p>
             <pre class="rules-code"><code>if (frontIsClear() &amp;&amp; beepersPresent()) {
   pickBeeper();
 }
-while (!rightIsClear() || frontIsClear()) {
-  move();
-}</code></pre>
+# Python:
+if frontIsClear() and beepersPresent():
+    pickBeeper()</code></pre>
           </section>
 
           <section class="rules-section">
             <h3>Цикл for</h3>
+            <p><strong>JavaScript:</strong></p>
             <pre class="rules-code"><code>for (let i = 0; i &lt; 4; i++) {
   move();
 }</code></pre>
+            <p><strong>Python:</strong></p>
+            <pre class="rules-code"><code>for i in range(4):
+    move()</code></pre>
             <p>
-              Повторює тіло <code>{ }</code> стільки разів, скільки вказано в умові
-              <code>i &lt; N</code> (N — ціле число від 0). Заголовок у стилі JavaScript:
-              <code>let</code>, старт <code>0</code>, порівняння <code>&lt;</code>, далі будь-який
-              коректний вираз інкременту (наприклад <code>i++</code>). Вкладені цикли та комбінація з
-              <code>if</code> дозволені.
+              N — ціле число від 0 (скільки разів повторити тіло). У JS — заголовок у стилі
+              <code>let i = 0; i &lt; N; i++</code> (інкремент може бути іншим). У Python — лише
+              <code>for … in range(N):</code>.
             </p>
           </section>
 
           <section class="rules-section">
             <h3>Власні функції</h3>
+            <p><strong>JavaScript:</strong></p>
             <pre class="rules-code"><code>function turnRight() {
   turnLeft();
   turnLeft();
@@ -265,91 +280,85 @@ function canMove() {
 
 if (canMove()) {
   move();
-}
+}</code></pre>
+            <p><strong>Python:</strong></p>
+            <pre class="rules-code"><code>def turnRight():
+    turnLeft()
+    turnLeft()
+    turnLeft()
 
-turnRight();
-move();</code></pre>
+def canMove():
+    return frontIsClear()
+
+if canMove():
+    move()</code></pre>
             <dl>
               <dt>Структура програми</dt>
               <dd>
-                Спочатку можна оголосити нуль або більше глобальних функцій
-                <code>function імʼя() { … }</code>, далі — основний код (команди, <code>if</code>,
-                <code>for</code>, <code>while</code>). Глобальні функції можуть викликати одна одну.
+                Спочатку — глобальні функції (<code>function … { }</code> або <code>def …:</code>), далі
+                основний код. Глобальні функції можуть викликати одна одну. Синтаксис однієї мови на весь
+                файл (перемикач над редактором).
               </dd>
               <dt><code>return</code></dt>
               <dd>
-                Лише всередині тіла <code>function … { … }</code> (не в основному коді): рядок
-                <code>return &lt;вираз&gt;</code> (крапку з комою в кінці можна додати або ні). Вираз — той самий формат, що й
-                умова в <code>if</code> / <code>while</code> (предикати, <code>&amp;&amp;</code>,
-                <code>||</code>, <code>!</code>, дужки, виклики інших функцій з
-                <code>return</code>). Функція, яку викликають у такій умові, має завершуватися
-                <code>return</code>.
+                Лише всередині тіла функції: <code>return &lt;вираз&gt;</code> (крапка з комою необовʼязкова).
+                Вираз — як умова в <code>if</code> / <code>while</code>.
               </dd>
               <dt>Виклик</dt>
+              <dd><code>імʼя()</code> — виклик користувацької функції.</dd>
+              <dt>Локальні функції</dt>
               <dd>
-                <code>імʼя();</code> — виклик користувацької функції (не плутати з вбудованими командами
-                на кшталт <code>move()</code>).
-              </dd>
-              <dt>Локальні (вкладені) функції</dt>
-              <dd>
-                Усередині тіла будь-якої функції (і лише там) можна оголошувати
-                <code>function … () { … }</code>. Таке імʼя видно лише в цьому блоці та
-                <strong>лише після рядка оголошення</strong> — викликати «раніше» оголошення в тому ж блоці
-                не можна. Тіла <code>if</code>, <code>for</code> і <code>while</code> не додають імен
-                назовні: локальна функція всередині циклу не видна після циклу.
+                Усередині іншої функції можна оголошувати вкладені функції тим самим синтаксисом, що й
+                глобальні. Імʼя видно лише після рядка оголошення в тому ж блоці.
               </dd>
               <dt>Рекурсія</dt>
-              <dd>
-                Дозволена: глобальна функція може викликати сама себе, локальна — себе ж у межах того ж
-                блоку. Потрібна умова зупинки, інакше виконання не скінчиться.
-              </dd>
+              <dd>Дозволена; потрібна умова зупинки.</dd>
               <dt>Обмеження імен</dt>
               <dd>
-                У одному блоці не можна двічі оголосити функцію з тим самим імʼям (у тому числі якщо таке
-                імʼя вже є у глобальних функціях — повтор у внутрішньому блоці теж заборонений). Імʼя
-                функції не може збігатися з вбудованою командою (<code>move</code>, <code>turnLeft</code>,
-                предикати, <code>bagCount</code> тощо) або бути зарезервованим словом: <code>if</code>, <code>while</code>,
-                <code>for</code>, <code>function</code>, <code>let</code>, <code>const</code>,
-                <code>var</code>, <code>paintCorner</code>, <code>return</code>.
+                Не можна дублювати імена в одному блоці. Заборонені вбудовані команди та слова
+                <code>if</code>, <code>while</code>, <code>for</code>, <code>function</code>,
+                <code>def</code>, <code>return</code>, <code>let</code>, <code>range</code> тощо.
               </dd>
             </dl>
-            <pre class="rules-code"><code>function walkLine() {
-  if (frontIsClear()) {
-    move();
-    walkLine();
-  }
-}</code></pre>
+            <pre class="rules-code"><code># Python — рекурсія
+def walkLine():
+    if frontIsClear():
+        move()
+        walkLine()</code></pre>
           </section>
 
           <section class="rules-section">
             <h3>Цикл while</h3>
+            <p><strong>JavaScript:</strong></p>
             <pre class="rules-code"><code>while (frontIsClear()) {
   move();
 }</code></pre>
+            <p><strong>Python:</strong></p>
+            <pre class="rules-code"><code>while frontIsClear():
+    move()</code></pre>
             <p>
-              Поки предикат у дужках дає <code>true</code>, виконується тіло <code>{ }</code>. Ті самі
-              умови, що й у <code>if</code>. Після кожного проходу тіла умова перевіряється знову. Якщо
-              умова завжди істинна, цикл не зупиниться (перезавантажте сторінку або натисніть Reset).
+              Поки умова істинна, виконується тіло. Ті самі предикати, що й у <code>if</code>. Якщо умова
+              завжди істинна — цикл не зупиниться (Рестарт).
             </p>
           </section>
 
           <section class="rules-section">
             <h3>Запуск</h3>
             <dl>
-              <dt><strong>Run</strong></dt>
+              <dt><strong>Старт</strong></dt>
               <dd>Виконати всю програму з анімацією кроків.</dd>
-              <dt><strong>Step</strong></dt>
+              <dt><strong>Крок</strong></dt>
               <dd>
                 Один елемент черги: одна команда, один <code>if</code> (з можливим розгортанням тіла),
                 один <code>for</code> (усі повтори тіла стають наступними кроками), одна перевірка
-                <code>while</code>, один виклик <code>імʼя()</code> (у чергу додається тіло цієї
-                функції та межі області видимості), один рядок оголошення локальної
-                <code>function … () { … }</code>. Далі натискайте Step, щоб виконувати вже підставлені
+                <code>while</code>,                 один виклик <code>імʼя()</code> (у чергу додається тіло цієї функції та межі області
+                видимості), один рядок оголошення локальної функції (<code>function … { }</code> або
+                <code>def …:</code>). Далі натискайте Крок, щоб виконувати вже підставлені
                 команди по одній. Якщо крок — це предикат (<code>frontIsClear()</code>,
                 <code>beepersInBag()</code> тощо) або <code>bagCount()</code>, у рядку статусу з’являється
                 результат після стрілки, наприклад <code>-&gt; true</code> або <code>-&gt; 5</code>.
               </dd>
-              <dt><strong>Reset</strong></dt>
+              <dt><strong>Рестарт</strong></dt>
               <dd>Скинути світ і чергу виконання.</dd>
             </dl>
           </section>
@@ -359,7 +368,8 @@ move();</code></pre>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/javascript/javascript.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/python/python.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.4/p5.min.js"></script>
-    <script type="module" src="./src/main.js"></script>
+    <script type="module" src="./src/main.js?v=2"></script>
   </body>
 </html>

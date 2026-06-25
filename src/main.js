@@ -17,6 +17,8 @@ import {
   parseConditionAst,
   conditionAstHasUserCall,
   CONDITION_EVALUATORS,
+  DIALECT_JS,
+  DIALECT_PYTHON,
 } from "./interpreter.js";
 
 const statusLine = document.getElementById("statusLine");
@@ -37,6 +39,92 @@ const loadWorldFileBtn = document.getElementById("loadWorldFileBtn");
 const worldFileInput = document.getElementById("worldFileInput");
 const worldCollapseBtn = document.getElementById("worldCollapseBtn");
 const worldPanel = document.querySelector(".world-panel");
+const dialectSelect = document.getElementById("dialectSelect");
+
+const DIALECT_STORAGE_KEY = "karelDialect";
+
+function readStoredDialect() {
+  try {
+    const v = localStorage.getItem(DIALECT_STORAGE_KEY);
+    return v === DIALECT_PYTHON ? DIALECT_PYTHON : DIALECT_JS;
+  } catch {
+    return DIALECT_JS;
+  }
+}
+
+/** Поточний діалект (синхронізується з select і localStorage). */
+let currentDialect = readStoredDialect();
+
+const EXAMPLE_JS = `// Приклад коду (JavaScript)
+
+function turnRight() {
+  turnLeft();
+  turnLeft();
+  turnLeft();
+}
+
+// повернути вліво
+turnLeft();
+
+// замалювати клітинку червоним
+paintCorner("Red");
+
+// пройти три кроки
+for (let i = 0; i < 3; i++) {
+  move();
+}
+
+// повернути вправо
+turnRight();
+
+// дійти до стіни
+while (frontIsClear()) {
+  move();
+}
+
+turnLeft();
+while (frontIsClear()) {
+  move();
+}
+turnLeft();
+while (!rightIsClear()) {
+  move();
+}
+
+paintCorner("Orange");
+`;
+
+const EXAMPLE_PYTHON = `# Приклад коду (Python)
+
+def turnRight():
+    turnLeft()
+    turnLeft()
+    turnLeft()
+
+# повернути вліво
+turnLeft()
+
+# замалювати клітинку червоним
+paintCorner("Red")
+
+# пройти три кроки
+for i in range(3):
+    move()
+
+turnRight()
+
+while frontIsClear():
+    move()
+
+turnLeft()
+while frontIsClear():
+    move()
+turnLeft()
+while not rightIsClear():
+    move()
+
+paintCorner("Orange")
+`;
 
 /** @type {KarelEngine} */
 let engine;
@@ -85,11 +173,42 @@ function applyWorldConfig(config, statusMsg) {
 
 applyWorldConfig(createDemoWorldConfig(), "Готово.");
 
+/** @returns {typeof DIALECT_JS | typeof DIALECT_PYTHON} */
+function getDialect() {
+  if (dialectSelect) {
+    currentDialect =
+      dialectSelect.value === DIALECT_PYTHON ? DIALECT_PYTHON : DIALECT_JS;
+  }
+  return currentDialect;
+}
+
+function applyEditorDialect(dialect, statusHint = false) {
+  currentDialect = dialect;
+  const isPy = dialect === DIALECT_PYTHON;
+  editor.setOption("mode", isPy ? "python" : "javascript");
+  editor.setOption("tabSize", isPy ? 4 : 2);
+  if (dialectSelect) {
+    dialectSelect.value = dialect;
+  }
+  try {
+    localStorage.setItem(DIALECT_STORAGE_KEY, dialect);
+  } catch {
+    /* ignore */
+  }
+  if (statusHint) {
+    setStatus(
+      isPy
+        ? "Мова: Python (def, if cond:, for i in range(n):, відступи)."
+        : "Мова: JavaScript (function, if (cond) { }, for (let i = 0; i < n; i++))."
+    );
+  }
+}
+
 const editor = CodeMirror.fromTextArea(document.getElementById("codeInput"), {
-  mode: "javascript",
+  mode: currentDialect === DIALECT_PYTHON ? "python" : "javascript",
   lineNumbers: true,
   theme: "default",
-  tabSize: 2,
+  tabSize: currentDialect === DIALECT_PYTHON ? 4 : 2,
 });
 
 function refreshEditorSize() {
@@ -102,44 +221,13 @@ function refreshEditorSize() {
   editor.refresh();
 }
 
-editor.setValue(`//Приклад коду
-
-function turnRight() {
-  turnLeft();
-  turnLeft();
-  turnLeft();
+editor.setValue(currentDialect === DIALECT_PYTHON ? EXAMPLE_PYTHON : EXAMPLE_JS);
+if (dialectSelect) {
+  dialectSelect.value = currentDialect;
+  dialectSelect.addEventListener("change", () => {
+    applyEditorDialect(getDialect(), true);
+  });
 }
-
-//повернути вліво
-turnLeft();
-
-//замалювати клітинку червоним
-paintCorner("Red");
-
-//пройти три кроки
-for (let i = 0; i < 3; i++) {
-  move();
-}
-
-//повернути вправо
-turnRight();
-
-//дійти до стіни
-while (frontIsClear()) {
-  move();
-}
-
-turnLeft();
-while (frontIsClear()) {
-  move();
-}
-turnLeft();
-while (!rightIsClear()) {
-  move();
-}
-
-paintCorner("Orange");
-`);
 
 let renderWidth = 480;
 let renderHeight = 480;
@@ -545,18 +633,22 @@ function runDefunItem(item) {
     throw new Error("Internal error: nested function outside of a call");
   }
   scopeStack[scopeStack.length - 1].set(item.name, item.body);
-  setStatus(`Executed: function ${item.name}() { … } (local)`);
+  const fnLabel =
+    getDialect() === DIALECT_PYTHON
+      ? `def ${item.name}(): …`
+      : `function ${item.name}() { … }`;
+  setStatus(`Executed: ${fnLabel} (local)`);
 }
 
 function parseEditorCommands() {
-  const parsed = parseProgram(editor.getValue());
+  const parsed = parseProgram(editor.getValue(), { dialect: getDialect() });
   userFunctions = parsed.functions;
   return parsed.main;
 }
 
 function executeNext() {
   if (queue.length === 0) {
-    setStatus("Program completed.");
+    setStatus("Програма завершена.");
     return;
   }
 
@@ -625,7 +717,7 @@ function scheduleAfterItem(lastItem) {
       scheduleRunWhenAnimationsIdle();
     } else {
       cancelRunSchedule();
-      setStatus("Program completed.");
+      setStatus("Програма завершена.");
     }
     return;
   }
@@ -644,7 +736,7 @@ function scheduleAfterItem(lastItem) {
 function runQueuedStep() {
   if (queue.length === 0) {
     cancelRunSchedule();
-    setStatus("Program completed.");
+    setStatus("Програма завершена.");
     return;
   }
 
@@ -702,7 +794,7 @@ runBtn.addEventListener("click", () => {
     resetExecutionQueue();
     queue = parseEditorCommands();
     if (queue.length === 0) {
-      setStatus("Nothing to run.");
+      setStatus("Немає чого виконувати.");
       return;
     }
 
@@ -726,7 +818,7 @@ stepBtn.addEventListener("click", () => {
 resetBtn.addEventListener("click", () => {
   resetExecutionQueue();
   engine.reset();
-  setStatus("World reset.");
+  setStatus("Світ скинуто.");
 });
 
 if (rulesBtn && rulesDialog) {

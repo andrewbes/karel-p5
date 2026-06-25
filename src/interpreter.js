@@ -25,9 +25,37 @@ const PAINT_CORNER_RE = /^paintCorner\("([^"]+)"\)$/;
 /** @typedef {string | { type: 'if', condition: string, body: Statement[] } | { type: 'for', count: number, body: Statement[] } | { type: 'while', condition: string, body: Statement[] } | { type: 'call', name: string } | { type: 'defun', name: string, body: Statement[] } | { type: 'return', expr: string } | { type: 'scopePush' } | { type: 'scopePop' } | { type: 'condEvalResume', slot: { value: boolean | null, done: boolean } }} QueueItem */
 
 const FUNCTION_HEADER_RE = /^function\s+(\w+)\s*\(\s*\)\s*\{\s*$/;
+/** Python: `def name():` з тілом за відступами */
+const DEF_HEADER_RE = /^def\s+(\w+)\s*\(\s*\)\s*:\s*$/;
 /** JS-like: for (let i = 0; i < N; …) { — N must be a non-negative integer; last clause any increment */
+const PY_FOR_HEADER_RE = /^for\s+\w+\s+in\s+range\s*\(\s*(\d+)\s*\)\s*:\s*$/;
+
+/** JS: for (let i = 0; i < N; …) { */
 const FOR_HEADER_RE =
   /^for\s*\(\s*let\s+\w+\s*=\s*0\s*;\s*\w+\s*<\s*(\d+)\s*;\s*[^)]+\)\s*\{\s*$/;
+
+/**
+ * @param {string} dialect
+ * @returns {dialect is typeof DIALECT_PYTHON}
+ */
+function isPythonDialect(dialect) {
+  return dialect === DIALECT_PYTHON;
+}
+
+/**
+ * Python `and` / `or` / `not` → внутрішній JS-подібний формат умов.
+ * @param {string} expr
+ */
+function normalizePythonCondition(expr) {
+  let s = expr.trim();
+  s = s.replace(/\bnot\s+/g, "!");
+  s = s.replace(/\band\b/g, "&&");
+  s = s.replace(/\bor\b/g, "||");
+  return s;
+}
+
+export const DIALECT_JS = "js";
+export const DIALECT_PYTHON = "python";
 
 export const CONDITION_NAMES = [
   "frontIsClear",
@@ -391,6 +419,7 @@ const RESERVED_FUNCTION_NAMES = new Set([
   "while",
   "for",
   "function",
+  "def",
   "let",
   "const",
   "var",
@@ -398,6 +427,8 @@ const RESERVED_FUNCTION_NAMES = new Set([
   "return",
   "true",
   "false",
+  "in",
+  "range",
 ]);
 const BUILTIN_COMMAND_NAMES = new Set([
   "move",
@@ -415,6 +446,41 @@ const BUILTIN_COMMAND_NAMES = new Set([
 
 function normalizeToken(token) {
   return token.endsWith(";") ? token.slice(0, -1).trim() : token;
+}
+
+/** @typedef {{ text: string, indent: number, lineNo: number }} SourceLine */
+
+/**
+ * @param {string} raw
+ * @returns {number}
+ */
+function measureIndent(raw) {
+  let n = 0;
+  for (let j = 0; j < raw.length; j += 1) {
+    const ch = raw[j];
+    if (ch === " ") n += 1;
+    else if (ch === "\t") n += 4;
+    else break;
+  }
+  return n;
+}
+
+/**
+ * @param {string} source
+ * @returns {SourceLine[]}
+ */
+function splitSourceLines(source) {
+  /** @type {SourceLine[]} */
+  const lines = [];
+  const rawLines = source.split("\n");
+  for (let i = 0; i < rawLines.length; i += 1) {
+    const raw = rawLines[i];
+    const text = raw.trim();
+    if (!text) continue;
+    if (text.startsWith("//") || text.startsWith("#")) continue;
+    lines.push({ text, indent: measureIndent(raw), lineNo: i + 1 });
+  }
+  return lines;
 }
 
 function validateCommandToken(token, lineLabel) {
@@ -504,18 +570,20 @@ function validateBlock(stmts, env, ctx) {
 }
 
 /**
- * @param {string[]} lines
+ * JS: if / for / while з фігурними дужками.
+ * @param {SourceLine[]} lines
  * @param {number} i
  * @returns {{ stmt: Statement, nextIndex: number } | null}
  */
-function tryParseStructuredStatement(lines, i, allowReturn) {
-  const line = lines[i].trim();
+function tryParseJsStructuredStatement(lines, i, allowReturn) {
+  const line = lines[i].text;
+  const lineNo = lines[i].lineNo;
 
   if (/^if\s*\(/.test(line)) {
     const cond = extractConditionAfterKeyword(line, "if");
     if (cond === null) return null;
-    if (!cond) throw new Error(`Line ${i + 1}: empty if condition`);
-    const inner = parseBlock(lines, i + 1, true, allowReturn);
+    if (!cond) throw new Error(`Line ${lineNo}: empty if condition`);
+    const inner = parseJsBlock(lines, i + 1, true, allowReturn);
     return { stmt: { type: "if", condition: cond, body: inner.stmts }, nextIndex: inner.nextIndex };
   }
 
@@ -524,18 +592,18 @@ function tryParseStructuredStatement(lines, i, allowReturn) {
     const count = parseInt(forMatch[1], 10);
     if (count > MAX_FOR_ITERATIONS) {
       throw new Error(
-        `Line ${i + 1}: for loop count must be at most ${MAX_FOR_ITERATIONS} (got ${count})`
+        `Line ${lineNo}: for loop count must be at most ${MAX_FOR_ITERATIONS} (got ${count})`
       );
     }
-    const inner = parseBlock(lines, i + 1, true, allowReturn);
+    const inner = parseJsBlock(lines, i + 1, true, allowReturn);
     return { stmt: { type: "for", count, body: inner.stmts }, nextIndex: inner.nextIndex };
   }
 
   if (/^while\s*\(/.test(line)) {
     const cond = extractConditionAfterKeyword(line, "while");
     if (cond === null) return null;
-    if (!cond) throw new Error(`Line ${i + 1}: empty while condition`);
-    const inner = parseBlock(lines, i + 1, true, allowReturn);
+    if (!cond) throw new Error(`Line ${lineNo}: empty while condition`);
+    const inner = parseJsBlock(lines, i + 1, true, allowReturn);
     return { stmt: { type: "while", condition: cond, body: inner.stmts }, nextIndex: inner.nextIndex };
   }
 
@@ -543,23 +611,145 @@ function tryParseStructuredStatement(lines, i, allowReturn) {
 }
 
 /**
- * @param {string[]} lines trimmed non-empty, non-comment lines
+ * Python: if cond: / while cond: / for i in range(n):
+ * @param {SourceLine[]} lines
+ * @param {number} i
+ * @returns {{ stmt: Statement, nextIndex: number } | null}
+ */
+function tryParsePyStructuredStatement(lines, i, allowReturn) {
+  const line = lines[i].text;
+  const lineNo = lines[i].lineNo;
+
+  const ifMatch = line.match(/^if\s+(.+):\s*$/);
+  if (ifMatch) {
+    const cond = normalizePythonCondition(ifMatch[1]);
+    if (!cond) throw new Error(`Line ${lineNo}: empty if condition`);
+    const inner = parsePyIndentedBlock(lines, i + 1, lines[i].indent, allowReturn);
+    return { stmt: { type: "if", condition: cond, body: inner.stmts }, nextIndex: inner.nextIndex };
+  }
+
+  const whileMatch = line.match(/^while\s+(.+):\s*$/);
+  if (whileMatch) {
+    const cond = normalizePythonCondition(whileMatch[1]);
+    if (!cond) throw new Error(`Line ${lineNo}: empty while condition`);
+    const inner = parsePyIndentedBlock(lines, i + 1, lines[i].indent, allowReturn);
+    return { stmt: { type: "while", condition: cond, body: inner.stmts }, nextIndex: inner.nextIndex };
+  }
+
+  const forMatch = line.match(PY_FOR_HEADER_RE);
+  if (forMatch) {
+    const count = parseInt(forMatch[1], 10);
+    if (count > MAX_FOR_ITERATIONS) {
+      throw new Error(
+        `Line ${lineNo}: for loop count must be at most ${MAX_FOR_ITERATIONS} (got ${count})`
+      );
+    }
+    const inner = parsePyIndentedBlock(lines, i + 1, lines[i].indent, allowReturn);
+    return { stmt: { type: "for", count, body: inner.stmts }, nextIndex: inner.nextIndex };
+  }
+
+  return null;
+}
+
+/**
+ * @param {SourceLine[]} lines
+ * @param {number} i
+ * @param {number} bodyIndent
+ * @param {boolean} allowReturn
+ * @returns {{ stmt: Statement, nextIndex: number }}
+ */
+function parsePyStatement(lines, i, bodyIndent, allowReturn) {
+  const { text, lineNo, indent } = lines[i];
+  if (indent !== bodyIndent) {
+    throw new Error(`Line ${lineNo}: inconsistent indentation`);
+  }
+
+  if (/^function\s+\w+/.test(text)) {
+    throw new Error(
+      `Line ${lineNo}: "function" is JavaScript syntax — switch language to JavaScript in the editor toolbar`
+    );
+  }
+
+  const structured = tryParsePyStructuredStatement(lines, i, allowReturn);
+  if (structured) return structured;
+
+  const retStmt = tryParseReturnLine(text);
+  if (retStmt) {
+    if (!allowReturn) {
+      throw new Error(`Line ${lineNo}: return is only allowed inside a function body`);
+    }
+    return { stmt: retStmt, nextIndex: i + 1 };
+  }
+
+  const callStmt = tryParseCall(text);
+  if (callStmt) {
+    return { stmt: callStmt, nextIndex: i + 1 };
+  }
+
+  const defMatch = text.match(DEF_HEADER_RE);
+  if (defMatch) {
+    const name = defMatch[1];
+    validateUserFunctionName(name, lineNo);
+    const inner = parsePyIndentedBlock(lines, i + 1, lines[i].indent, allowReturn);
+    return { stmt: { type: "defun", name, body: inner.stmts }, nextIndex: inner.nextIndex };
+  }
+
+  validateCommandLine(text, lineNo);
+  return { stmt: { type: "cmd", cmd: normalizeToken(text) }, nextIndex: i + 1 };
+}
+
+/**
+ * Тіло Python-блоку (після `def`, `if`, `while`, `for`).
+ * @param {SourceLine[]} lines
  * @param {number} start
- * @param {boolean} mustCloseWithBrace — if true, block must end with `}` before EOF
- * @param {boolean} allowReturn — `return` дозволено лише всередині `function … { }`
+ * @param {number} parentIndent
+ * @param {boolean} allowReturn
  * @returns {{ stmts: Statement[], nextIndex: number }}
  */
-function parseBlock(lines, start, mustCloseWithBrace, allowReturn) {
+function parsePyIndentedBlock(lines, start, parentIndent, allowReturn) {
+  const stmts = [];
+  let i = start;
+  let bodyIndent = null;
+  while (i < lines.length) {
+    const { indent, lineNo } = lines[i];
+    if (indent <= parentIndent) break;
+    if (bodyIndent === null) bodyIndent = indent;
+    if (indent < bodyIndent) break;
+    if (indent > bodyIndent) {
+      throw new Error(`Line ${lineNo}: unexpected indentation`);
+    }
+    const parsed = parsePyStatement(lines, i, bodyIndent, allowReturn);
+    stmts.push(parsed.stmt);
+    i = parsed.nextIndex;
+  }
+  return { stmts, nextIndex: i };
+}
+
+/**
+ * @param {SourceLine[]} lines
+ * @param {number} start
+ * @param {boolean} mustCloseWithBrace
+ * @param {boolean} allowReturn
+ * @returns {{ stmts: Statement[], nextIndex: number }}
+ */
+function parseJsBlock(lines, start, mustCloseWithBrace, allowReturn) {
   const stmts = [];
   let i = start;
   while (i < lines.length) {
-    const line = lines[i].trim();
+    const line = lines[i].text;
+    const lineNo = lines[i].lineNo;
 
     if (line === "}") {
       return { stmts, nextIndex: i + 1 };
     }
 
-    const structured = tryParseStructuredStatement(lines, i, allowReturn);
+    if (DEF_HEADER_RE.test(line)) {
+      throw new Error(
+        `Line ${lineNo}: "def" is Python syntax — switch language to Python in the editor toolbar`
+      );
+    }
+
+    const structured = tryParseJsStructuredStatement(lines, i, allowReturn);
     if (structured) {
       stmts.push(structured.stmt);
       i = structured.nextIndex;
@@ -569,14 +759,14 @@ function parseBlock(lines, start, mustCloseWithBrace, allowReturn) {
     const retStmt = tryParseReturnLine(line);
     if (retStmt) {
       if (!allowReturn) {
-        throw new Error(`Line ${i + 1}: return is only allowed inside a function body`);
+        throw new Error(`Line ${lineNo}: return is only allowed inside a function body`);
       }
       stmts.push(retStmt);
       i += 1;
       continue;
     }
 
-    const callStmt = tryParseCall(lines[i]);
+    const callStmt = tryParseCall(line);
     if (callStmt) {
       stmts.push(callStmt);
       i += 1;
@@ -586,72 +776,146 @@ function parseBlock(lines, start, mustCloseWithBrace, allowReturn) {
     const funMatch = line.match(FUNCTION_HEADER_RE);
     if (funMatch) {
       const name = funMatch[1];
-      validateUserFunctionName(name, i + 1);
-      const inner = parseBlock(lines, i + 1, true, allowReturn);
+      validateUserFunctionName(name, lineNo);
+      const inner = parseJsBlock(lines, i + 1, true, allowReturn);
       stmts.push({ type: "defun", name, body: inner.stmts });
       i = inner.nextIndex;
       continue;
     }
 
-    validateCommandLine(line, i + 1);
+    validateCommandLine(line, lineNo);
     stmts.push({ type: "cmd", cmd: normalizeToken(line) });
     i += 1;
   }
   if (mustCloseWithBrace) {
-    throw new Error(`Missing closing "}" (opened before line ${start + 1})`);
+    throw new Error(`Missing closing "}" (opened before line ${lines[start]?.lineNo ?? start + 1})`);
   }
   return { stmts, nextIndex: i };
 }
 
 /**
- * Top level: optional `function name() { ... }` blocks plus main program.
- * @param {string[]} lines
+ * @param {SourceLine[]} lines
  * @returns {{ mainStmts: Statement[], functions: Record<string, Statement[]> }}
  */
-function parseTopLevel(lines) {
+function parseJsTopLevel(lines) {
   /** @type {Record<string, Statement[]>} */
   const functions = Object.create(null);
   const mainStmts = [];
   let i = 0;
   while (i < lines.length) {
-    const line = lines[i].trim();
+    const line = lines[i].text;
+    const lineNo = lines[i].lineNo;
+
     if (line === "}") {
-      throw new Error(`Line ${i + 1}: Unexpected "}"`);
+      throw new Error(`Line ${lineNo}: Unexpected "}"`);
     }
 
-    if (/^\s*return\b/.test(line)) {
-      throw new Error(`Line ${i + 1}: return is only allowed inside a function body`);
+    if (/^\s*return\b/i.test(line)) {
+      throw new Error(`Line ${lineNo}: return is only allowed inside a function body`);
+    }
+
+    if (DEF_HEADER_RE.test(line)) {
+      throw new Error(
+        `Line ${lineNo}: "def" is Python syntax — switch language to Python in the editor toolbar`
+      );
     }
 
     const funMatch = line.match(FUNCTION_HEADER_RE);
     if (funMatch) {
       const name = funMatch[1];
-      validateUserFunctionName(name, i + 1);
+      validateUserFunctionName(name, lineNo);
       if (functions[name]) {
-        throw new Error(`Line ${i + 1}: Duplicate function "${name}"`);
+        throw new Error(`Line ${lineNo}: Duplicate function "${name}"`);
       }
-      const inner = parseBlock(lines, i + 1, true, true);
+      const inner = parseJsBlock(lines, i + 1, true, true);
       functions[name] = inner.stmts;
       i = inner.nextIndex;
       continue;
     }
 
-    const structured = tryParseStructuredStatement(lines, i, false);
+    const structured = tryParseJsStructuredStatement(lines, i, false);
     if (structured) {
       mainStmts.push(structured.stmt);
       i = structured.nextIndex;
       continue;
     }
 
-    const callStmt = tryParseCall(lines[i]);
+    const callStmt = tryParseCall(line);
     if (callStmt) {
       mainStmts.push(callStmt);
       i += 1;
       continue;
     }
 
-    validateCommandLine(lines[i], i + 1);
-    mainStmts.push({ type: "cmd", cmd: normalizeToken(lines[i]) });
+    validateCommandLine(line, lineNo);
+    mainStmts.push({ type: "cmd", cmd: normalizeToken(line) });
+    i += 1;
+  }
+
+  const globalNames = new Set(Object.keys(functions));
+  validateBlock(mainStmts, globalNames, "Program");
+  for (const fname of globalNames) {
+    validateBlock(functions[fname], globalNames, `Function "${fname}"`);
+  }
+
+  return { mainStmts, functions };
+}
+
+/**
+ * @param {SourceLine[]} lines
+ * @returns {{ mainStmts: Statement[], functions: Record<string, Statement[]> }}
+ */
+function parsePyTopLevel(lines) {
+  /** @type {Record<string, Statement[]>} */
+  const functions = Object.create(null);
+  const mainStmts = [];
+  let i = 0;
+  while (i < lines.length) {
+    const { text: line, lineNo, indent } = lines[i];
+
+    if (indent !== 0) {
+      throw new Error(`Line ${lineNo}: unexpected indentation at top level`);
+    }
+
+    if (/^\s*return\b/i.test(line)) {
+      throw new Error(`Line ${lineNo}: return is only allowed inside a function body`);
+    }
+
+    const defMatch = line.match(DEF_HEADER_RE);
+    if (defMatch) {
+      const name = defMatch[1];
+      validateUserFunctionName(name, lineNo);
+      if (functions[name]) {
+        throw new Error(`Line ${lineNo}: Duplicate function "${name}"`);
+      }
+      const inner = parsePyIndentedBlock(lines, i + 1, lines[i].indent, true);
+      functions[name] = inner.stmts;
+      i = inner.nextIndex;
+      continue;
+    }
+
+    if (/^function\s+\w+/.test(line)) {
+      throw new Error(
+        `Line ${lineNo}: "function" is JavaScript syntax — switch language to JavaScript in the editor toolbar`
+      );
+    }
+
+    const structured = tryParsePyStructuredStatement(lines, i, false);
+    if (structured) {
+      mainStmts.push(structured.stmt);
+      i = structured.nextIndex;
+      continue;
+    }
+
+    const callStmt = tryParseCall(line);
+    if (callStmt) {
+      mainStmts.push(callStmt);
+      i += 1;
+      continue;
+    }
+
+    validateCommandLine(line, lineNo);
+    mainStmts.push({ type: "cmd", cmd: normalizeToken(line) });
     i += 1;
   }
 
@@ -697,15 +961,51 @@ export function statementToQueueItem(s) {
 }
 
 /**
+ * Визначає діалект: явний вибір UI має пріоритет, інакше — за синтаксисом у коді.
+ * @param {string} source
+ * @param {string | undefined} requested
+ * @returns {typeof DIALECT_JS | typeof DIALECT_PYTHON}
+ */
+function resolveDialect(source, requested) {
+  const preferred =
+    requested === DIALECT_PYTHON ? DIALECT_PYTHON : DIALECT_JS;
+  const lines = splitSourceLines(source);
+  let sawDef = false;
+  let sawFunction = false;
+  let sawPySyntax = false;
+  let sawJsSyntax = false;
+  for (const { text } of lines) {
+    if (DEF_HEADER_RE.test(text)) sawDef = true;
+    if (/^function\s+\w+/.test(text)) sawFunction = true;
+    if (
+      (/^if\s+/.test(text) && /:\s*$/.test(text) && !/^if\s*\(/.test(text)) ||
+      (/^while\s+/.test(text) && /:\s*$/.test(text) && !/^while\s*\(/.test(text)) ||
+      PY_FOR_HEADER_RE.test(text)
+    ) {
+      sawPySyntax = true;
+    }
+    if (/^if\s*\(/.test(text) || /^while\s*\(/.test(text) || FOR_HEADER_RE.test(text)) {
+      sawJsSyntax = true;
+    }
+  }
+  const looksPython = sawDef || sawPySyntax;
+  const looksJs = sawFunction || sawJsSyntax;
+  if (looksPython && !looksJs) return DIALECT_PYTHON;
+  if (looksJs && !looksPython) return DIALECT_JS;
+  return preferred;
+}
+
+/**
+ * @param {string} source
+ * @param {{ dialect?: string }} [options] — `js` (default) або `python`
  * @returns {{ main: QueueItem[], functions: Record<string, Statement[]> }}
  */
-export function parseProgram(source) {
-  const lines = source
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0 && !line.startsWith("//"));
-
-  const { mainStmts, functions } = parseTopLevel(lines);
+export function parseProgram(source, options = {}) {
+  const dialect = resolveDialect(source, options.dialect);
+  const lines = splitSourceLines(source);
+  const { mainStmts, functions } = isPythonDialect(dialect)
+    ? parsePyTopLevel(lines)
+    : parseJsTopLevel(lines);
   return {
     main: mainStmts.map(statementToQueueItem),
     functions,
